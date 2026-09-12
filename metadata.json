@@ -1,0 +1,6 @@
+{
+  "name": "FRIDAY",
+  "description": "Voice-first native Android AI assistant with background standby, animated AI orb, and secure action architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

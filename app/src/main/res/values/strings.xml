@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">FRIDAY</string>
+    <string name="accessibility_service_description">FRIDAY Assistant UI Automation Service allows FRIDAY to perform voice-requested actions like tapping on buttons, scrolling, navigating back, and entering text.</string>
+</resources>
