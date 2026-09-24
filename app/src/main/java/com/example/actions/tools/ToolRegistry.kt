@@ -126,6 +126,25 @@ object ToolRegistry {
         register(paymentTool)
         tools["PAYMENT"] = paymentTool
         tools["UPI_PAYMENT"] = paymentTool
+
+        // 14. Generative AI Tools & Grounding (Gemini 3.5, 3.1, Veo, Lyria)
+        val genEngine = com.example.ai.gemini.GeminiGenerativeEngine()
+        register(SearchGroundingTool(genEngine))
+        register(SearchGroundingTool(genEngine, "SEARCH_GROUNDING"))
+        register(SearchGroundingTool(genEngine, "CURRENT_INFO_SEARCH"))
+        register(MapsGroundingTool(genEngine))
+        register(MapsGroundingTool(genEngine, "MAPS_GROUNDING"))
+        register(ImageGenerationTool(genEngine))
+        register(ImageGenerationTool(genEngine, "CREATE_IMAGE"))
+        register(ImageGenerationTool(genEngine, "GENERATE_IMAGE"))
+        register(VideoGenerationTool(genEngine))
+        register(VideoGenerationTool(genEngine, "CREATE_VIDEO"))
+        register(VideoGenerationTool(genEngine, "GENERATE_VIDEO"))
+        register(MusicGenerationTool(genEngine))
+        register(MusicGenerationTool(genEngine, "COMPOSE_MUSIC"))
+        register(MusicGenerationTool(genEngine, "GENERATE_MUSIC"))
+        register(AudioTranscriptionTool(genEngine))
+        register(AudioTranscriptionTool(genEngine, "TRANSCRIBE_AUDIO"))
     }
 
     fun register(tool: FridayTool) {

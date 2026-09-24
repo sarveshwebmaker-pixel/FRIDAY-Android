@@ -463,4 +463,77 @@ class FridayConversationAndPersonalityTest {
         assertEquals(com.example.ai.UserIntentCategory.ACTION, news.category)
         assertEquals("SEARCH_WEB", news.structuredAction!!.actionType)
     }
+
+    @Test
+    fun testComprehensiveDeviceControls() {
+        // 1. Screenshot
+        val screenshot = com.example.ai.IntentUnderstandingEngine.parseCommand("Take a screenshot")
+        assertNotNull(screenshot)
+        assertEquals("TAKE_SCREENSHOT", screenshot!!.actionType)
+
+        // 2. Lock screen
+        val lock = com.example.ai.IntentUnderstandingEngine.parseCommand("Lock phone")
+        assertNotNull(lock)
+        assertEquals("LOCK_SCREEN", lock!!.actionType)
+
+        // 3. Power menu
+        val power = com.example.ai.IntentUnderstandingEngine.parseCommand("Open power menu")
+        assertNotNull(power)
+        assertEquals("POWER_MENU", power!!.actionType)
+
+        // 4. Split screen
+        val split = com.example.ai.IntentUnderstandingEngine.parseCommand("Toggle split screen")
+        assertNotNull(split)
+        assertEquals("SPLIT_SCREEN", split!!.actionType)
+
+        // 5. Ringer modes & DND
+        val silent = com.example.ai.IntentUnderstandingEngine.parseCommand("Put phone on silent")
+        assertNotNull(silent)
+        assertEquals("RINGER_MODE", silent!!.actionType)
+        assertEquals("silent", silent.parameters["mode"])
+
+        val vibrate = com.example.ai.IntentUnderstandingEngine.parseCommand("Set phone to vibrate")
+        assertNotNull(vibrate)
+        assertEquals("RINGER_MODE", vibrate!!.actionType)
+        assertEquals("vibrate", vibrate.parameters["mode"])
+
+        val dnd = com.example.ai.IntentUnderstandingEngine.parseCommand("Turn on do not disturb")
+        assertNotNull(dnd)
+        assertEquals("RINGER_MODE", dnd!!.actionType)
+        assertEquals("dnd", dnd.parameters["mode"])
+
+        // 6. Auto-rotate
+        val rotateOn = com.example.ai.IntentUnderstandingEngine.parseCommand("Turn on auto rotate")
+        assertNotNull(rotateOn)
+        assertEquals("SCREEN_ORIENTATION", rotateOn!!.actionType)
+        assertEquals("on", rotateOn.parameters["state"])
+
+        val rotateOff = com.example.ai.IntentUnderstandingEngine.parseCommand("Lock screen rotation")
+        assertNotNull(rotateOff)
+        assertEquals("SCREEN_ORIENTATION", rotateOff!!.actionType)
+        assertEquals("off", rotateOff.parameters["state"])
+
+        // 7. Universal Audio Streams
+        val ringVol = com.example.ai.IntentUnderstandingEngine.parseCommand("Set ringtone volume to 80 percent")
+        assertNotNull(ringVol)
+        assertEquals("ADJUST_VOLUME", ringVol!!.actionType)
+        assertEquals("ring", ringVol.parameters["stream"])
+        assertEquals("80", ringVol.parameters["level"])
+
+        val alarmVol = com.example.ai.IntentUnderstandingEngine.parseCommand("Turn up alarm volume")
+        assertNotNull(alarmVol)
+        assertEquals("ADJUST_VOLUME", alarmVol!!.actionType)
+        assertEquals("alarm", alarmVol.parameters["stream"])
+        assertEquals("up", alarmVol.parameters["direction"])
+
+        // 8. Flashlight strobe
+        val strobe = com.example.ai.IntentUnderstandingEngine.parseCommand("Emergency strobe light")
+        assertNotNull(strobe)
+        assertEquals("FLASHLIGHT_STROBE", strobe!!.actionType)
+
+        // 9. Vibrate device / haptic motor
+        val vib = com.example.ai.IntentUnderstandingEngine.parseCommand("Buzz phone")
+        assertNotNull(vib)
+        assertEquals("VIBRATE_DEVICE", vib!!.actionType)
+    }
 }

@@ -83,11 +83,21 @@ class VoiceEngine(
         ttsProvider = provider
     }
 
+    private fun stopListeningInternal() {
+        isListening = false
+        stopVadWatchdog()
+        try {
+            speechRecognizer?.stopListening()
+            speechRecognizer?.destroy()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping recognizer internal", e)
+        }
+        speechRecognizer = null
+    }
+
     fun startListening(sessionId: String? = null) {
         mainHandler.post {
-            if (isListening) {
-                stopListening()
-            }
+            stopListeningInternal()
 
             if (!SpeechRecognizer.isRecognitionAvailable(context)) {
                 listener.onSpeechError(-1, "Speech recognition not available on device")
@@ -105,24 +115,7 @@ class VoiceEngine(
                 lastSpeechTimestamp = 0L
                 stopVadWatchdog()
 
-                // Destroy old instance to prevent resource leaks
-                try {
-                    speechRecognizer?.destroy()
-                } catch (_: Exception) {}
-                speechRecognizer = null
-
-                val isOfflineAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                        SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
-
-                speechRecognizer = if (isOfflineAvailable) {
-                    try {
-                        SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                    } catch (_: Exception) {
-                        SpeechRecognizer.createSpeechRecognizer(context)
-                    }
-                } else {
-                    SpeechRecognizer.createSpeechRecognizer(context)
-                }
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
 
                 speechRecognizer?.apply {
                     setRecognitionListener(object : RecognitionListener {

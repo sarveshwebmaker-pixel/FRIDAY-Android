@@ -3,26 +3,17 @@ package com.example.service
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
-import android.view.Gravity
-import android.view.LayoutInflater
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.ImageView
+import android.util.Log
 import com.example.FridayApplication
-import com.example.R
-import com.example.core.FridayCore
-import com.example.core.OrbState
 
 /**
- * Minimalist Floating Overlay Dock.
- * Displays a non-intrusive, draggable trigger orb when FRIDAY is minimized.
- * Tapping triggers conversational listening immediately.
+ * Floating Overlay Service for FRIDAY.
+ * Coordinates with FloatingBubbleManager to ensure the interactive assistant orb
+ * appears dynamically when active in background and dismisses cleanly when idle.
+ * Never keeps a static, unclickable icon stuck on screen.
  */
 class FridayFloatingOverlayService : Service() {
 
@@ -31,111 +22,36 @@ class FridayFloatingOverlayService : Service() {
 
         fun start(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                Log.w(TAG, "Cannot start overlay service: overlay permission not granted")
                 return
             }
-            val intent = Intent(context, FridayFloatingOverlayService::class.java)
-            context.startService(intent)
+            try {
+                val intent = Intent(context, FridayFloatingOverlayService::class.java)
+                context.startService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start FridayFloatingOverlayService", e)
+            }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, FridayFloatingOverlayService::class.java)
-            context.stopService(intent)
+            try {
+                val intent = Intent(context, FridayFloatingOverlayService::class.java)
+                context.stopService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to stop FridayFloatingOverlayService", e)
+            }
         }
     }
-
-    private var windowManager: WindowManager? = null
-    private var floatingView: View? = null
-    private var fridayCore: FridayCore? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        fridayCore = (application as? FridayApplication)?.fridayCore
-
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 30
-            y = 300
-        }
-
-        val container = FrameLayout(this).apply {
-            val sizePx = (56 * resources.displayMetrics.density).toInt()
-            layoutParams = FrameLayout.LayoutParams(sizePx, sizePx)
-            val icon = ImageView(context).apply {
-                setImageResource(R.mipmap.ic_launcher_round)
-                layoutParams = FrameLayout.LayoutParams(sizePx, sizePx)
-            }
-            addView(icon)
-        }
-        floatingView = container
-
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-        var isClick = false
-
-        container.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    isClick = true
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - initialTouchX
-                    val dy = event.rawY - initialTouchY
-                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                        isClick = false
-                    }
-                    params.x = initialX + dx.toInt()
-                    params.y = initialY + dy.toInt()
-                    windowManager?.updateViewLayout(container, params)
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (isClick) {
-                        // User tapped floating orb -> trigger voice session
-                        fridayCore?.startConversationSession()
-                    }
-                    true
-                }
-                else -> false
-            }
-        }
-
-        try {
-            windowManager?.addView(floatingView, params)
-        } catch (e: Exception) {
-            stopSelf()
-        }
+        Log.i(TAG, "FridayFloatingOverlayService initialized cleanly.")
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (floatingView != null) {
-            try {
-                windowManager?.removeView(floatingView)
-            } catch (_: Exception) {}
-            floatingView = null
-        }
+        Log.i(TAG, "FridayFloatingOverlayService stopped.")
     }
 }

@@ -50,6 +50,12 @@ object FridayCapabilities {
     const val APP_CLOSE = "CLOSE_APP"
     const val SILENT_WORK_MODE = "SILENT_WORK_MODE"
     const val UNMUTE = "UNMUTE"
+    const val GENERATE_IMAGE = "GENERATE_IMAGE"
+    const val GENERATE_VIDEO = "GENERATE_VIDEO"
+    const val GENERATE_MUSIC = "GENERATE_MUSIC"
+    const val SEARCH_GROUNDING = "SEARCH_GROUNDING"
+    const val MAPS_GROUNDING = "MAPS_GROUNDING"
+    const val TRANSCRIBE_AUDIO = "TRANSCRIBE_AUDIO"
 }
 
 /**
@@ -193,6 +199,56 @@ object IntentUnderstandingEngine {
                 actionType = "FLASHLIGHT_STROBE",
                 parameters = mapOf("flashes" to "6"),
                 speechResponse = "Activating emergency strobe light, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 1c. GENERATIVE AI: IMAGE, VIDEO, MUSIC, AND LIVE SEARCH GROUNDING
+        if (lower.startsWith("generate image") || lower.startsWith("create image") || lower.startsWith("create an image") ||
+            lower.startsWith("draw an image") || lower.startsWith("draw a picture") || lower.startsWith("generate a picture") ||
+            lower.startsWith("generate picture") || lower.startsWith("paint an image")) {
+            val prompt = lower.replace(Regex("^(?:generate|create|draw|paint)(?:\\s+an|\\s+a)?\\s+(?:image|picture)(?:\\s+of)?\\s*"), "").trim()
+            return StructuredAction(
+                intent = FridayCapabilities.GENERATE_IMAGE,
+                actionType = "GENERATE_IMAGE",
+                parameters = mapOf("prompt" to prompt),
+                speechResponse = "Generating image for $prompt, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        if (lower.startsWith("generate video") || lower.startsWith("create video") || lower.startsWith("create a video") ||
+            lower.startsWith("make a video") || lower.startsWith("render a video")) {
+            val prompt = lower.replace(Regex("^(?:generate|create|make|render)(?:\\s+a)?\\s+video(?:\\s+of)?\\s*"), "").trim()
+            return StructuredAction(
+                intent = FridayCapabilities.GENERATE_VIDEO,
+                actionType = "GENERATE_VIDEO",
+                parameters = mapOf("prompt" to prompt, "aspectRatio" to "16:9"),
+                speechResponse = "Creating high-definition video for $prompt, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        if (lower.startsWith("generate music") || lower.startsWith("compose music") || lower.startsWith("create music") ||
+            lower.startsWith("compose a song") || lower.startsWith("make a beat") || lower.startsWith("generate a beat")) {
+            val prompt = lower.replace(Regex("^(?:generate|compose|create|make)(?:\\s+a)?\\s+(?:music|song|beat)(?:\\s+for|\\s+of)?\\s*"), "").trim()
+            return StructuredAction(
+                intent = FridayCapabilities.GENERATE_MUSIC,
+                actionType = "GENERATE_MUSIC",
+                parameters = mapOf("prompt" to prompt),
+                speechResponse = "Composing soundtrack for $prompt, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        if (lower.startsWith("search live ") || lower.startsWith("search google for ") || lower.startsWith("google ") ||
+            lower.startsWith("latest news on ") || lower.startsWith("breaking news on ")) {
+            val query = lower.replace(Regex("^(?:search live|search google for|google|latest news on|breaking news on)\\s*"), "").trim()
+            return StructuredAction(
+                intent = FridayCapabilities.SEARCH_GROUNDING,
+                actionType = "SEARCH_GROUNDING",
+                parameters = mapOf("query" to query),
+                speechResponse = "Searching live Google results for $query, Boss.",
                 riskLevel = ActionRiskLevel.SAFE
             )
         }
@@ -515,8 +571,8 @@ object IntentUnderstandingEngine {
             )
         }
 
-        // 6j. VIBRATE DEVICE
-        val vibratePatterns = listOf("vibrate phone", "vibrate the phone", "buzz phone", "test vibration")
+        // 6j. VIBRATE DEVICE / HAPTIC BUZZ
+        val vibratePatterns = listOf("buzz phone", "buzz the phone", "test vibration", "trigger vibration", "buzz", "haptic test")
         if (vibratePatterns.any { lower == it || lower.startsWith("$it ") }) {
             return StructuredAction(
                 intent = FridayCapabilities.VIBRATE,

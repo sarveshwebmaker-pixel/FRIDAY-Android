@@ -213,37 +213,40 @@ class WakeWordEngine(
                 val zcr = zeroCrossings.toDouble() / read
 
                 // 2. Dynamic Noise-Floor Tracking & SNR Calculation
-                val dynamicThreshold = (ambientNoiseFloor * 1.45 + 350.0).coerceIn(600.0, 3200.0)
-                val isSpeechFrame = frameRms > dynamicThreshold && (zcr in 0.04..0.45)
+                // Sensitive floor allowing normal speech at 1-2 meters and moderate noise
+                val dynamicThreshold = (ambientNoiseFloor * 1.25 + 100.0).coerceIn(180.0, 2800.0)
+                val isSpeechFrame = frameRms > dynamicThreshold && (zcr in 0.03..0.50)
 
                 if (!isSpeechFrame) {
                     // Adapt ambient noise floor smoothly (leaky integrator)
-                    ambientNoiseFloor = ambientNoiseFloor * 0.97 + frameRms * 0.03
-                    if (ambientNoiseFloor < 100.0) ambientNoiseFloor = 100.0
+                    ambientNoiseFloor = ambientNoiseFloor * 0.96 + frameRms * 0.04
+                    if (ambientNoiseFloor < 60.0) ambientNoiseFloor = 60.0
                 }
 
-                // 3. Acoustic Syllabic State Machine for "FRIDAY" (/fraɪ/ + plosive dip + /deɪ/)
+                // 3. Acoustic Syllabic State Machine for "FRIDAY" and "HEY FRIDAY"
+                // State 0: Idle / Noise floor tracking
+                // State 1: Syllable 1 (e.g., "HEY" or "FRI-")
+                // State 2: Inter-syllable dip / boundary
+                // State 3: Syllable 2 (e.g., "FRI-" or "-DAY")
+                // State 4: Syllable 3 (for "HEY FRIDAY" -> "-DAY")
                 when (spotterState) {
                     0 -> {
-                        // Looking for Syllable 1 ("FRI-")
                         if (isSpeechFrame) {
                             spotterState = 1
                             stateFrameCount = 1
                         }
                     }
                     1 -> {
-                        // In Syllable 1 ("FRI-")
                         if (isSpeechFrame) {
                             stateFrameCount++
-                            if (stateFrameCount > 15) {
-                                // Too long for single syllable "FRI-", reset
+                            if (stateFrameCount > 20) {
                                 spotterState = 0
                                 stateFrameCount = 0
                             }
                         } else {
-                            // Energy dropped: Did Syllable 1 have valid duration? (~100ms - 400ms, approx 3-14 frames)
-                            if (stateFrameCount in 3..14) {
-                                spotterState = 2 // Move to inter-syllable dip
+                            // Valid syllable 1 (50ms - 450ms)
+                            if (stateFrameCount in 2..18) {
+                                spotterState = 2
                                 stateFrameCount = 1
                             } else {
                                 spotterState = 0
@@ -252,17 +255,15 @@ class WakeWordEngine(
                         }
                     }
                     2 -> {
-                        // Inter-syllable dip (brief plosive closure between "FRI" and "DAY")
                         if (!isSpeechFrame) {
                             stateFrameCount++
-                            if (stateFrameCount > 5) {
-                                // Dip too long, user stopped talking
+                            if (stateFrameCount > 7) {
                                 spotterState = 0
                                 stateFrameCount = 0
                             }
                         } else {
-                            // Energy re-surged! Syllable 2 ("-DAY") detected!
-                            if (stateFrameCount in 1..4) {
+                            // Energy resurgent
+                            if (stateFrameCount in 1..6) {
                                 spotterState = 3
                                 stateFrameCount = 1
                             } else {
@@ -272,11 +273,10 @@ class WakeWordEngine(
                         }
                     }
                     3 -> {
-                        // Syllable 2 ("-DAY")
                         if (isSpeechFrame) {
                             stateFrameCount++
-                            // Once Syllable 2 sustains for 3-5 frames (~90-150ms), keyword "FRIDAY" is confirmed!
-                            if (stateFrameCount in 3..5) {
+                            // Syllable 2 confirmed (FRIDAY 2-syllable trigger or HEY FRI transition)
+                            if (stateFrameCount in 3..6) {
                                 Log.i(TAG, "[WAKE_WORD_STATE] Acoustic keyword 'FRIDAY' detected! (RMS: $frameRms, NoiseFloor: $ambientNoiseFloor)")
                                 isRunning.set(false)
                                 synchronized(recordLock) {
@@ -304,14 +304,57 @@ class WakeWordEngine(
                                     listener.onWakeWordDetected(WAKE_WORD)
                                 }
                                 break
-                            } else if (stateFrameCount > 12) {
-                                // Continuous speech (not FRIDAY wake word), reset
+                            } else if (stateFrameCount > 18) {
                                 spotterState = 0
                                 stateFrameCount = 0
                             }
                         } else {
-                            spotterState = 0
-                            stateFrameCount = 0
+                            // Dip after second syllable ("Hey Fri- ...") -> could lead to "-day"
+                            if (stateFrameCount in 2..14) {
+                                spotterState = 4
+                                stateFrameCount = 1
+                            } else {
+                                spotterState = 0
+                                stateFrameCount = 0
+                            }
+                        }
+                    }
+                    4 -> {
+                        // Looking for syllable 3 ("-DAY" in "HEY FRIDAY")
+                        if (!isSpeechFrame) {
+                            stateFrameCount++
+                            if (stateFrameCount > 6) {
+                                spotterState = 0
+                                stateFrameCount = 0
+                            }
+                        } else {
+                            // Final syllable of "HEY FRIDAY"
+                            Log.i(TAG, "[WAKE_WORD_STATE] Acoustic keyword 'HEY FRIDAY' detected! (RMS: $frameRms, NoiseFloor: $ambientNoiseFloor)")
+                            isRunning.set(false)
+                            synchronized(recordLock) {
+                                try {
+                                    noiseSuppressor?.release()
+                                    noiseSuppressor = null
+                                    echoCanceler?.release()
+                                    echoCanceler = null
+                                    gainControl?.release()
+                                    gainControl = null
+
+                                    audioRecord?.let { record ->
+                                        if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                                            record.stop()
+                                        }
+                                        record.release()
+                                    }
+                                    audioRecord = null
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error releasing AudioRecord on wake detection", e)
+                                }
+                            }
+                            mainHandler.post {
+                                listener.onWakeWordDetected(WAKE_WORD)
+                            }
+                            break
                         }
                     }
                 }

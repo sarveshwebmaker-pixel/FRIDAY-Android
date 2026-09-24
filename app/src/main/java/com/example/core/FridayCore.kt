@@ -52,12 +52,12 @@ class FridayCore(
 
         fun stripWakeWordPrefix(text: String): String {
             val trimmed = text.trim()
-            val pattern = Regex("^(hey\\s+friday|hi\\s+friday|ok\\s+friday|friday)[,\\s:]*", RegexOption.IGNORE_CASE)
+            val pattern = Regex("^(hey\\s+friday|hi\\s+friday|ok\\s+friday|okay\\s+friday|hello\\s+friday|friday)[,\\s:]*", RegexOption.IGNORE_CASE)
             return trimmed.replaceFirst(pattern, "").trim()
         }
 
         fun hasWakeWord(text: String): Boolean {
-            val pattern = Regex("\\b(hey\\s+friday|hi\\s+friday|ok\\s+friday|friday)\\b", RegexOption.IGNORE_CASE)
+            val pattern = Regex("\\b(hey\\s+friday|hi\\s+friday|ok\\s+friday|okay\\s+friday|hello\\s+friday|friday)\\b", RegexOption.IGNORE_CASE)
             return pattern.containsMatchIn(text)
         }
     }
@@ -119,7 +119,12 @@ class FridayCore(
                 } catch (_: Exception) {
                     true
                 }
-                bubbleManager.updateOrbState(s.orbState, inForeground)
+                val bubbleAllowed = settingsRepo.settings.value.floatingBubbleEnabled
+                if (bubbleAllowed) {
+                    bubbleManager.updateOrbState(s.orbState, inForeground)
+                } else {
+                    bubbleManager.hideBubble()
+                }
             }
         }
 
@@ -551,6 +556,7 @@ class FridayCore(
         centralAudioController.onSpeakingCompleted {
             if (conversationContext.isSessionActive) {
                 // Natural Conversation Mode: Keep listening for follow-up without wake word
+                conversationContext.touchInteraction()
                 _state.value = _state.value.copy(
                     orbState = OrbState.LISTENING,
                     sessionState = AssistantSessionState.FOLLOW_UP_LISTENING,

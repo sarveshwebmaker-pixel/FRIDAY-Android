@@ -20,7 +20,7 @@ class GeminiAiProvider(
 
     companion object {
         private const val TAG = "GeminiAiProvider"
-        private const val MODEL = "gemini-2.5-flash"
+        private const val MODEL = "gemini-3.5-flash"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
 
         private const val SYSTEM_INSTRUCTION = """
@@ -63,29 +63,37 @@ Supported Action Types & Tools:
 5. NAVIGATION & MAPS:
    - MAP_SEARCH: {"location": "..."}
    - START_NAVIGATION: {"destination": "..."}
+   - MAPS_GROUNDING: {"location": "..."}
 
 6. CAMERA & MEDIA:
    - CAMERA_ACTION: {"mode": "photo"|"video"|"open"}
    - GALLERY_ACTION: {}
    - FILE_ACTION: {"mode": "open"|"downloads"}
 
-7. CALLS & NOTIFICATIONS & VISION:
+7. GENERATIVE AI & CREATIVITY:
+   - SEARCH_GROUNDING: {"query": "..."} (For live, real-time web knowledge, breaking news, live scores, current stock)
+   - GENERATE_IMAGE: {"prompt": "..."} (For creating or drawing images)
+   - GENERATE_VIDEO: {"prompt": "...", "aspectRatio": "16:9"|"9:16"} (For creating video scenes)
+   - GENERATE_MUSIC: {"prompt": "..."} (For composing music or beats)
+   - TRANSCRIBE_AUDIO: {"audioData": "..."} (For transcribing audio)
+
+8. CALLS & NOTIFICATIONS & VISION:
    - CALL_CONTROLLER: {"action": "answer"|"reject"} (Answers or hangs up active telephone call)
    - READ_NOTIFICATIONS: {"count": "3"} (Reads incoming messages and notifications aloud)
    - REPLY_NOTIFICATION: {"message": "..."} (Quick replies to the latest received message)
    - SCREEN_VISION: {"prompt": "..."} (Inspects or reads current phone screen)
 
-8. SETTINGS & SYSTEM SHADES:
+9. SETTINGS & SYSTEM SHADES:
    - SETTINGS_ACTION: {"setting": "wifi"|"bluetooth"|"display"|"sound"|"battery"|"apps"|"general"}
    - SYSTEM_PANEL_ACTION: {"panel": "notifications"|"quick_settings"}
 
-9. UI AUTOMATION (Where requested):
+10. UI AUTOMATION (Where requested):
    - UI_AUTOMATION: {"operation": "click"|"type"|"scroll_down"|"scroll_up"|"back"|"home"|"recents"|"read_screen", "target": "button label or id", "inputText": "..."}
 
-10. CONVERSATION, QUESTIONS & KNOWLEDGE:
+11. CONVERSATION, QUESTIONS & KNOWLEDGE:
    - SPEAK_RESPONSE: {"message": "..."} (For questions, explanations, math, trivia, general AI dialogue, advice, or greeting. Answer clearly and naturally in 1-3 conversational sentences under 30 words.)
 
-11. MULTI-STEP COMMANDS:
+12. MULTI-STEP COMMANDS:
    - If user asks a sequence like "find Rahul in contacts and call him on WhatsApp", return intent "MULTI_STEP_PLAN", actionType "MULTI_STEP_ACTION", and populate the "steps" array with each child action in chronological order.
 
 Return ONLY a valid JSON object with:
@@ -102,11 +110,12 @@ Return ONLY a valid JSON object with:
     }
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    override val name: String = "Gemini 2.5 Flash"
+    override val name: String = "Gemini 3.5 Flash"
 
     override val isCloudConnected: Boolean
         get() {
