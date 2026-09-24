@@ -1,9 +1,11 @@
 package com.example.core
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.example.FridayApplication
 import com.example.actions.ActionExecutor
 import com.example.actions.ActionResult
 import com.example.actions.PhoneAction
@@ -14,8 +16,10 @@ import com.example.ai.OfflineAiProvider
 import com.example.ai.StructuredAction
 import com.example.ai.UserIntentCategory
 import com.example.ai.UserIntentClassifier
+import com.example.bubble.FloatingBubbleManager
 import com.example.identity.FridayMood
 import com.example.identity.FridayPersonality
+import com.example.identity.SpeakerType
 import com.example.identity.VoiceIdentityEngine
 import com.example.permissions.FridayPermissionManager
 import com.example.security.ActionRiskLevel
@@ -40,7 +44,7 @@ import kotlinx.coroutines.launch
 
 class FridayCore(
     private val context: Context,
-    val settingsRepo: FridaySettingsRepository
+    val settingsRepo: FridaySettingsRepository = FridaySettingsRepository(context)
 ) : VoiceEngineListener, WakeWordListener {
 
     companion object {
@@ -68,6 +72,10 @@ class FridayCore(
     val identityEngine = VoiceIdentityEngine(settingsRepo.settings.value.voiceIdentityThreshold)
     val actionExecutor = ActionExecutor(context)
     val skillRegistry = SkillRegistry()
+    val bubbleManager = FloatingBubbleManager(context) {
+        // Bubble click handler: start listening immediately
+        startConversationSession()
+    }
 
     val centralAudioController = CentralAudioController(context)
 
@@ -103,6 +111,18 @@ class FridayCore(
             }
         }
 
+        // Synchronize Floating Bubble with Assistant state
+        scope.launch {
+            _state.collect { s ->
+                val inForeground = try {
+                    FridayApplication.instance.isAppInForeground
+                } catch (_: Exception) {
+                    true
+                }
+                bubbleManager.updateOrbState(s.orbState, inForeground)
+            }
+        }
+
         // Observe settings changes
         scope.launch {
             settingsRepo.settings.collect { settings ->
@@ -134,6 +154,7 @@ class FridayCore(
     }
 
     fun checkAndStartStandby() {
+        checkDeviceLockState()
         val hasMic = permissionManager.isMicrophoneGranted()
         _state.value = _state.value.copy(
             isMicrophoneGranted = hasMic,
@@ -171,15 +192,46 @@ class FridayCore(
                 }
             }
             OrbState.SPEAKING -> {
-                voiceEngine.stopSpeaking()
-                if (conversationContext.isSessionActive) {
-                    endConversationSession()
-                }
-                transitionToIdle("FRIDAY — Ready")
+                handleBargeIn()
             }
             OrbState.THINKING, OrbState.WORKING -> {
                 // In progress
             }
+        }
+    }
+
+    /**
+     * Handles natural interruption (barge-in) while FRIDAY is speaking.
+     * Stops speech immediately and resumes active listening or processes the interruption.
+     */
+    fun handleBargeIn(interruptionText: String? = null) {
+        voiceEngine.stopSpeaking()
+        if (interruptionText.isNullOrBlank()) {
+            if (conversationContext.isSessionActive) {
+                _state.value = _state.value.copy(
+                    orbState = OrbState.LISTENING,
+                    sessionState = AssistantSessionState.FOLLOW_UP_LISTENING,
+                    statusText = "FRIDAY — Listening...",
+                    audioAmplitude = 0.2f
+                )
+                centralAudioController.acquireForCommandListening(
+                    reason = "Barge-in user interruption",
+                    stopWakeWordAction = { wakeWordEngine.stopDetection() },
+                    startVoiceAction = { sessionId -> voiceEngine.startListening(sessionId) }
+                )
+            } else {
+                transitionToIdle("FRIDAY — Ready")
+            }
+            return
+        }
+
+        val lower = interruptionText.lowercase().trim()
+        if (lower in listOf("wait", "hold on", "stop", "pause")) {
+            speakReply("I'm listening.")
+        } else if (lower in listOf("nevermind", "never mind", "cancel", "forget that", "actually forget that")) {
+            speakReply("No problem.")
+        } else {
+            onSpeechResult(interruptionText)
         }
     }
 
@@ -204,7 +256,8 @@ class FridayCore(
             orbState = OrbState.LISTENING,
             sessionState = AssistantSessionState.LISTENING,
             isConversationActive = true,
-            statusText = "FRIDAY — Listening...",
+            conversationStatus = ConversationStatus.ACTIVE,
+            statusText = if (_state.value.isSilentWorkMode) "Silent Work Mode — Listening..." else "FRIDAY — Listening...",
             errorMessage = null,
             audioAmplitude = 0.2f
         )
@@ -220,8 +273,56 @@ class FridayCore(
         cancelInactivityTimeout()
         conversationContext.endSession()
         _state.value = _state.value.copy(
-            isConversationActive = false
+            isConversationActive = false,
+            conversationStatus = ConversationStatus.INACTIVE
         )
+    }
+
+    fun setSilentWorkMode(enabled: Boolean) {
+        val newMode = if (enabled) VoiceOutputMode.MUTED else VoiceOutputMode.ON
+        _state.value = _state.value.copy(
+            voiceOutputMode = newMode,
+            statusText = if (enabled) "Silent Work Mode Active" else "Voice Output Active"
+        )
+        Log.i(TAG, "Voice output mode changed: $newMode")
+        if (enabled) {
+            if (conversationContext.isSessionActive) {
+                _state.value = _state.value.copy(
+                    orbState = OrbState.LISTENING,
+                    sessionState = AssistantSessionState.FOLLOW_UP_LISTENING,
+                    statusText = "Silent Work Mode — Listening...",
+                    audioAmplitude = 0.2f
+                )
+                scheduleInactivityTimeout()
+                centralAudioController.acquireForCommandListening(
+                    reason = "Silent Work Mode active session",
+                    stopWakeWordAction = { wakeWordEngine.stopDetection() },
+                    startVoiceAction = { sessionId -> voiceEngine.startListening(sessionId) }
+                )
+            }
+        } else {
+            speakReply("Voice output resumed. I'm listening.")
+        }
+    }
+
+    fun setVoiceOutputMode(mode: VoiceOutputMode) {
+        setSilentWorkMode(mode == VoiceOutputMode.MUTED)
+    }
+
+    fun checkDeviceLockState(): DeviceLockState {
+        val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        val isLocked = km?.isDeviceLocked == true || km?.isKeyguardLocked == true
+        val state = if (isLocked) DeviceLockState.LOCKED else DeviceLockState.UNLOCKED
+        _state.value = _state.value.copy(deviceLockState = state)
+        return state
+    }
+
+    fun setDeviceLockState(lockState: DeviceLockState) {
+        _state.value = _state.value.copy(deviceLockState = lockState)
+    }
+
+    fun setVoiceAuthState(authState: VoiceAuthState) {
+        _state.value = _state.value.copy(voiceAuthState = authState)
     }
 
     private fun scheduleInactivityTimeout() {
@@ -338,10 +439,27 @@ class FridayCore(
 
         // Check if user requested dismissal / ending the conversation
         val lower = cleanCommand.lowercase().trim()
+
+        if (_state.value.pendingAction != null) {
+            if (lower in listOf("yes", "yeah", "yup", "sure", "confirm", "proceed", "do it", "go ahead")) {
+                confirmPendingAction()
+                return
+            } else if (lower in listOf("no", "nope", "cancel", "don't", "stop")) {
+                cancelPendingAction()
+                return
+            }
+        }
+
         if (lower == "bye" || lower == "goodbye" || lower == "stop listening" || lower == "that's all" ||
-            lower == "dismiss" || lower == "go to sleep" || lower == "nevermind" || lower == "cancel") {
+            lower == "dismiss" || lower == "go to sleep") {
             endConversationSession()
-            speakReply("Standing by.")
+            speakReply("Goodbye. Call me when you need me.")
+            return
+        }
+
+        if (lower == "nevermind" || lower == "never mind" || lower == "forget that" ||
+            lower == "okay forget that" || lower == "actually forget that" || lower == "drop that") {
+            speakReply("No problem.")
             return
         }
 
@@ -470,77 +588,54 @@ class FridayCore(
     private fun executeContextualAction(resolved: com.example.core.ResolvedContextCommand) {
         FridayTelemetry.recordFastPathExecution()
         FridayTelemetry.recordIntentStarted()
-        FridayTelemetry.recordActionExecutionStarted()
+
+        if (resolved.actionType == "CANCEL_CURRENT_TOPIC") {
+            speakReply("No problem.")
+            return
+        }
+
+        if (resolved.actionType == "SPEAK_RESPONSE") {
+            val reply = resolved.parameters["message"] ?: "Got it."
+            conversationContext.recordTurn(resolved.resolvedText, reply, "CASUAL_CONVERSATION")
+            speakReply(reply)
+            return
+        }
+
+        if (resolved.actionType == "TOPIC_CONTINUATION" || resolved.actionType == "TOPIC_EXPLANATION" || resolved.actionType == "TOPIC_EXAMPLE") {
+            processUserSpeech(resolved.resolvedText)
+            return
+        }
+
+        val action = StructuredAction(
+            intent = when (resolved.actionType) {
+                "TOGGLE_FLASHLIGHT", "ADJUST_VOLUME" -> "DEVICE_CONTROL"
+                "OPEN_APP" -> "LAUNCH_APP"
+                "CLOSE_APP" -> "CLOSE_APP"
+                "SEARCH_WEB" -> "SEARCH_WEB"
+                "WHATSAPP_CALL" -> "WHATSAPP_CALL"
+                "WHATSAPP_CHAT" -> "WHATSAPP_CHAT"
+                "WHATSAPP_MESSAGE" -> "WHATSAPP_MESSAGE"
+                "CALL_CONTACT" -> "CALL_CONTACT"
+                else -> "DEVICE_CONTROL"
+            },
+            actionType = resolved.actionType,
+            parameters = resolved.parameters,
+            speechResponse = "",
+            riskLevel = ActionRiskLevel.SAFE
+        )
 
         _state.value = _state.value.copy(
-            orbState = OrbState.WORKING,
-            sessionState = AssistantSessionState.EXECUTING,
-            statusText = "FRIDAY — Executing...",
             lastRecognizedText = resolved.resolvedText
         )
 
-        scope.launch(Dispatchers.Default) {
-            val action = StructuredAction(
-                intent = when (resolved.actionType) {
-                    "TOGGLE_FLASHLIGHT", "ADJUST_VOLUME" -> "DEVICE_CONTROL"
-                    "OPEN_APP" -> "LAUNCH_APP"
-                    "CLOSE_APP" -> "CLOSE_APP"
-                    "SEARCH_WEB" -> "SEARCH_WEB"
-                    "WHATSAPP_CALL" -> "WHATSAPP_CALL"
-                    "WHATSAPP_CHAT" -> "WHATSAPP_CHAT"
-                    "WHATSAPP_MESSAGE" -> "WHATSAPP_MESSAGE"
-                    "CALL_CONTACT" -> "CALL_CONTACT"
-                    else -> "DEVICE_CONTROL"
-                },
-                actionType = resolved.actionType,
-                parameters = resolved.parameters,
-                speechResponse = "",
-                riskLevel = ActionRiskLevel.SAFE
-            )
+        conversationContext.recordInteraction(
+            actionType = resolved.actionType,
+            targetEntity = resolved.targetEntity,
+            parameters = resolved.parameters
+        )
 
-            val skill = skillRegistry.findSkillForIntent(action.intent, action.actionType)
-            val result = skill?.execute(action, actionExecutor)
-
-            val isSuccess = result is ActionResult.Success
-            FridayTelemetry.recordCommandComplete(isSuccess = isSuccess, errorMessage = if (!isSuccess) (result as? ActionResult.Failure)?.error else null)
-
-            val formatted = FridayPersonality.formatSpeech(
-                actionType = resolved.actionType,
-                parameters = resolved.parameters,
-                isSuccess = isSuccess,
-                isFollowUp = true
-            )
-
-            val replyText = when (result) {
-                is ActionResult.Success -> result.spokenDetail ?: formatted.speechText
-                is ActionResult.Failure -> result.userMessage ?: FridayPersonality.formatError("ACTION_FAILED").speechText
-                is ActionResult.MissingParameter -> result.prompt
-                is ActionResult.PermissionRequired -> FridayPersonality.formatError("PERMISSION_REQUIRED", result.explanation).speechText
-                is ActionResult.DisambiguationRequired -> FridayPersonality.formatError("MULTIPLE_CONTACTS", result.prompt).speechText
-                is ActionResult.NeedsConfirmation -> result.action.description
-                is ActionResult.NotFound -> {
-                    val errType = if (resolved.actionType.contains("APP")) "APP_NOT_FOUND" else "CONTACT_NOT_FOUND"
-                    FridayPersonality.formatError(errType).speechText
-                }
-                is ActionResult.NotSupported -> result.explanation
-                is ActionResult.Cancelled -> result.reason
-                is ActionResult.Timeout -> "Operation timed out."
-                null -> formatted.speechText
-            }
-
-            conversationContext.recordTurn(resolved.resolvedText, replyText, "FOLLOW_UP")
-
-            conversationContext.recordInteraction(
-                actionType = resolved.actionType,
-                targetEntity = resolved.targetEntity,
-                parameters = resolved.parameters,
-                mood = formatted.mood
-            )
-
-            launch(Dispatchers.Main) {
-                _state.value = _state.value.copy(mood = formatted.mood)
-                speakReply(replyText)
-            }
+        scope.launch(Dispatchers.Main) {
+            evaluateAndExecuteAction(action, resolved.resolvedText)
         }
     }
 
@@ -577,11 +672,11 @@ class FridayCore(
                 return@launch
             }
 
-            // Local Fast-Path Direct Actions
+            // Local Fast-Path Direct Actions (e.g. Flashlight, Volume, Silent Mode, Unmute)
             if (classified.structuredAction != null && (classified.category == UserIntentCategory.ACTION || classified.category == UserIntentCategory.FOLLOW_UP)) {
                 FridayTelemetry.recordIntentStarted()
                 launch(Dispatchers.Main) {
-                    executeSafeAction(classified.structuredAction)
+                    evaluateAndExecuteAction(classified.structuredAction, commandText)
                 }
                 return@launch
             }
@@ -641,76 +736,110 @@ class FridayCore(
                 }
             }
 
-            // Inspect device security signals via official lightweight Security Watcher
-            val watcherReport = securityWatcher.inspectCurrentState()
-
-            // Normal safe commands execute with zero voice identity friction
-            val isNormalCommand = SecurityManager.isSafeAction(action.actionType)
-
-            val (voiceScore, securityResult) = if (isNormalCommand) {
-                Pair(null, securityManager.evaluateAction(
-                    actionType = action.actionType,
-                    parameters = action.parameters,
-                    voiceConfidence = null,
-                    minVoiceThreshold = identityEngine.getThreshold(),
-                    watcherReport = watcherReport
-                ))
-            } else {
-                val voiceResult = identityEngine.verifySpeaker(commandText)
-                Log.d(TAG, "Voice identity score for sensitive action '${action.actionType}': ${voiceResult.confidence}")
-                Pair(voiceResult.confidence, securityManager.evaluateAction(
-                    actionType = action.actionType,
-                    parameters = action.parameters,
-                    voiceConfidence = voiceResult.confidence,
-                    minVoiceThreshold = identityEngine.getThreshold(),
-                    watcherReport = watcherReport
-                ))
-            }
-
             launch(Dispatchers.Main) {
-                _state.value = _state.value.copy(
-                    voiceConfidence = voiceScore,
-                    securityStatusMessage = watcherReport.summary
-                )
-
-                when (securityResult.riskLevel) {
-                    ActionRiskLevel.BLOCKED -> {
-                        securityWatcher.recordSecurityFailure()
-                        _state.value = _state.value.copy(
-                            orbState = OrbState.ERROR,
-                            mood = FridayMood.SERIOUS,
-                            statusText = "Action Blocked",
-                            errorMessage = securityResult.reason
-                        )
-                        val blockedSpeech = FridayPersonality.formatSpeech(
-                            actionType = "BLOCKED_ACTION",
-                            isSuccess = false,
-                            explicitMood = FridayMood.SERIOUS
-                        )
-                        speakReply(blockedSpeech.speechText)
-                    }
-
-                    ActionRiskLevel.CONFIRM -> {
-                        _state.value = _state.value.copy(
-                            orbState = OrbState.WORKING,
-                            mood = FridayMood.CONCERNED,
-                            statusText = "Confirmation Required",
-                            pendingAction = action
-                        )
-                        val prompt = action.confirmationPrompt ?: securityResult.reason
-                        speakReply(prompt)
-                    }
-
-                    ActionRiskLevel.SAFE -> {
-                        securityWatcher.resetSecurityFailures()
-                        executeSafeAction(action)
-                    }
-                }
+                evaluateAndExecuteAction(action, commandText)
             }
         }
     }
 
-    private fun executeSafeAction(action: StructuredAction) {
+    /**
+     * Executes layered security check:
+     * 1. OWNER VOICE AUTHENTICATION
+     * 2. ACTION RISK CHECK (Lock-safe vs Protected/Confirmation)
+     * 3. EXECUTION POLICY
+     */
+    fun evaluateAndExecuteAction(action: StructuredAction, commandText: String) {
+        val currentLockState = if (_state.value.deviceLockState == DeviceLockState.LOCKED) {
+            DeviceLockState.LOCKED
+        } else {
+            checkDeviceLockState()
+        }
+        val isLocked = currentLockState == DeviceLockState.LOCKED
+        val watcherReport = securityWatcher.inspectCurrentState()
+
+        // 1. LAYER 1: OWNER VOICE AUTHENTICATION
+        val voiceResult = identityEngine.verifySpeaker(commandText)
+        val isOwnerVerified = voiceResult.isVerified
+        val voiceAuthState = if (isOwnerVerified) VoiceAuthState.OWNER else VoiceAuthState.UNKNOWN
+
+        _state.value = _state.value.copy(
+            voiceAuthState = voiceAuthState,
+            deviceLockState = currentLockState,
+            voiceConfidence = voiceResult.confidence,
+            securityStatusMessage = watcherReport.summary
+        )
+
+        // Strict lock-screen security check: unauthorized voice rejected hands-free
+        if (isLocked && !isOwnerVerified) {
+            Log.w(TAG, "Unauthorized voice rejected while phone is locked (${voiceResult.confidence})")
+            _state.value = _state.value.copy(
+                orbState = OrbState.ERROR,
+                mood = FridayMood.SERIOUS,
+                statusText = "Unauthorized Voice: Device Locked",
+                errorMessage = "Speaker not recognized. Owner authentication required while device is locked."
+            )
+            speakReply("Speaker not recognized. Only the device owner can give commands while the phone is locked.")
+            return
+        }
+
+        // 2. LAYER 2: ACTION RISK CHECK
+        val securityResult = securityManager.evaluateAction(
+            actionType = action.actionType,
+            parameters = action.parameters,
+            voiceConfidence = voiceResult.confidence,
+            minVoiceThreshold = identityEngine.getThreshold(),
+            watcherReport = watcherReport,
+            isVoiceVerifiedOwner = isOwnerVerified,
+            isDeviceLocked = isLocked
+        )
+
+        when (securityResult.riskLevel) {
+            ActionRiskLevel.BLOCKED -> {
+                securityWatcher.recordSecurityFailure()
+                _state.value = _state.value.copy(
+                    orbState = OrbState.ERROR,
+                    mood = FridayMood.SERIOUS,
+                    statusText = "Action Blocked",
+                    errorMessage = securityResult.reason
+                )
+                val blockedSpeech = FridayPersonality.formatSpeech(
+                    actionType = "BLOCKED_ACTION",
+                    isSuccess = false,
+                    explicitMood = FridayMood.SERIOUS
+                )
+                speakReply(blockedSpeech.speechText)
+            }
+            ActionRiskLevel.CONFIRM -> {
+                _state.value = _state.value.copy(
+                    orbState = if (isLocked) OrbState.ERROR else OrbState.WORKING,
+                    mood = FridayMood.CONCERNED,
+                    statusText = if (isLocked) "Device Unlock Required" else "Confirmation Required",
+                    errorMessage = if (isLocked) securityResult.reason else null,
+                    pendingAction = if (isLocked) null else action
+                )
+                val prompt = action.confirmationPrompt ?: securityResult.reason
+                speakReply(prompt)
+            }
+            ActionRiskLevel.SAFE -> {
+                securityWatcher.resetSecurityFailures()
+                executeSafeAction(action, commandText)
+            }
+        }
+    }
+
+    private fun executeSafeAction(action: StructuredAction, commandText: String = "") {
+        val userSpeech = if (commandText.isNotBlank()) commandText else action.actionType
+        if (action.actionType == "SILENT_WORK_MODE") {
+            setSilentWorkMode(true)
+            conversationContext.recordTurn(userSpeech, "Silent Work Mode Active", "ACTION")
+            return
+        }
+        if (action.actionType == "UNMUTE") {
+            setSilentWorkMode(false)
+            conversationContext.recordTurn(userSpeech, "Voice output resumed", "ACTION")
+            return
+        }
+
         FridayTelemetry.recordActionExecutionStarted()
         _state.value = _state.value.copy(
             orbState = OrbState.WORKING,
@@ -729,7 +858,13 @@ class FridayCore(
                 )
             } else {
                 val skill = skillRegistry.findSkillForIntent(action.intent, action.actionType)
-                skill?.execute(action, actionExecutor)
+                skill?.execute(action, actionExecutor) ?: run {
+                    val tool = com.example.actions.tools.ToolRegistry.getTool(action.actionType)
+                        ?: com.example.actions.tools.ToolRegistry.getTool(action.intent)
+                    if (tool != null) {
+                        com.example.actions.tools.ToolRegistry.executeTool(tool.id, action.parameters, context)
+                    } else null
+                }
             }
 
             val isSuccess = result is ActionResult.Success
@@ -788,7 +923,7 @@ class FridayCore(
                 null -> if (action.speechResponse.isNotBlank()) action.speechResponse else formatted.speechText
             }
 
-            conversationContext.recordTurn(action.actionType, finalReply, "ACTION")
+            conversationContext.recordTurn(userSpeech, finalReply, action.actionType)
 
             launch(Dispatchers.Main) {
                 _state.value = _state.value.copy(mood = formatted.mood)
@@ -826,6 +961,32 @@ class FridayCore(
     }
 
     private fun speakReply(text: String) {
+        if (_state.value.voiceOutputMode == VoiceOutputMode.MUTED) {
+            Log.i(TAG, "Silent Work Mode active: Suppressing voice reply for: '$text'")
+            _state.value = _state.value.copy(
+                currentSpeechResponse = text,
+                statusText = text,
+                audioAmplitude = 0f
+            )
+            if (conversationContext.isSessionActive) {
+                _state.value = _state.value.copy(
+                    orbState = OrbState.LISTENING,
+                    sessionState = AssistantSessionState.FOLLOW_UP_LISTENING,
+                    statusText = "Silent Work Mode — Listening...",
+                    audioAmplitude = 0.2f
+                )
+                scheduleInactivityTimeout()
+                centralAudioController.acquireForCommandListening(
+                    reason = "Silent Work Mode follow-up turn",
+                    stopWakeWordAction = { wakeWordEngine.stopDetection() },
+                    startVoiceAction = { sessionId -> voiceEngine.startListening(sessionId) }
+                )
+            } else {
+                scheduleReturnToIdle(1500)
+            }
+            return
+        }
+
         val settings = settingsRepo.settings.value
         _state.value = _state.value.copy(
             orbState = OrbState.SPEAKING,
@@ -843,6 +1004,7 @@ class FridayCore(
             orbState = OrbState.IDLE,
             sessionState = AssistantSessionState.STANDBY,
             isConversationActive = false,
+            conversationStatus = ConversationStatus.INACTIVE,
             statusText = status,
             audioAmplitude = 0f
         )
@@ -887,6 +1049,7 @@ class FridayCore(
 
     fun cleanup() {
         cancelInactivityTimeout()
+        bubbleManager.destroy()
         centralAudioController.releaseMic {
             wakeWordEngine.stopDetection()
             voiceEngine.shutdown()

@@ -8,8 +8,7 @@ import android.util.Log
 import com.example.actions.ActionResult
 import com.example.service.FridayAccessibilityService
 
-class AppLaunchTool : FridayTool {
-    override val id = "OPEN_APP"
+class AppLaunchTool(override val id: String = "OPEN_APP") : FridayTool {
     override val name = "Application Launcher"
     override val description = "Finds and launches any installed Android application"
 
@@ -95,8 +94,7 @@ class AppLaunchTool : FridayTool {
     }
 }
 
-class AppCloseTool : FridayTool {
-    override val id = "CLOSE_APP"
+class AppCloseTool(override val id: String = "CLOSE_APP") : FridayTool {
     override val name = "App Closer & Home Navigator"
     override val description = "Closes the current app by returning to Home or pressing Back"
 
@@ -124,8 +122,7 @@ class AppCloseTool : FridayTool {
     }
 }
 
-class SearchWebTool : FridayTool {
-    override val id = "SEARCH_WEB"
+class SearchWebTool(override val id: String = "SEARCH_WEB") : FridayTool {
     override val name = "Web & Media Search"
     override val description = "Searches the web, Google, or YouTube for a query"
 

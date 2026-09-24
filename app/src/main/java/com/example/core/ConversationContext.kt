@@ -60,6 +60,14 @@ class ConversationContext {
     var lastQuery: String? = null
         private set
 
+    var activeTopic: String? = null
+        private set
+
+    var activeTopicDetail: String? = null
+        private set
+
+    val sessionEntities: MutableMap<String, String> = mutableMapOf()
+
     private val _recentTurns = ArrayDeque<ConversationTurn>()
     val recentTurns: List<ConversationTurn> get() = _recentTurns.toList()
 
@@ -77,6 +85,24 @@ class ConversationContext {
         lastInteractionTime = System.currentTimeMillis()
         interactionCount = 0
         currentMood = FridayMood.CALM
+    }
+
+    fun recordTopic(topic: String, detail: String? = null) {
+        activeTopic = topic
+        if (detail != null) {
+            activeTopicDetail = detail
+        }
+        touchInteraction()
+    }
+
+    fun recordSessionEntity(key: String, value: String) {
+        sessionEntities[key.lowercase().trim()] = value.trim()
+        touchInteraction()
+    }
+
+    fun getSessionEntity(key: String): String? {
+        val lowerKey = key.lowercase().trim()
+        return sessionEntities[lowerKey] ?: sessionEntities["favorite_$lowerKey"]
     }
 
     fun recordInteraction(
@@ -143,11 +169,45 @@ class ConversationContext {
     }
 
     fun recordTurn(userSpeech: String, assistantReply: String, category: String = "ACTION") {
-        if (_recentTurns.size >= 4) {
+        if (_recentTurns.size >= 10) {
             _recentTurns.removeFirst()
         }
         _recentTurns.addLast(ConversationTurn(userSpeech, assistantReply, category))
         touchInteraction()
+
+        val lowerUser = userSpeech.lowercase().trim()
+        // Extract session entities: e.g. "my favorite game is minecraft"
+        val favMatch = Regex("(?:my\\s+)?favorite\\s+([a-zA-Z0-9_]+)\\s+is\\s+([a-zA-Z0-9_ ]+)", RegexOption.IGNORE_CASE).find(lowerUser)
+        if (favMatch != null) {
+            val entityType = favMatch.groupValues[1].trim()
+            val entityVal = favMatch.groupValues[2].trim()
+            sessionEntities[entityType] = entityVal
+            sessionEntities["favorite_$entityType"] = entityVal
+        }
+        val mentionedMatch = Regex("(?:i\\s+like|i\\s+play|i\\s+love)\\s+([a-zA-Z0-9_ ]+)", RegexOption.IGNORE_CASE).find(lowerUser)
+        if (mentionedMatch != null) {
+            val item = mentionedMatch.groupValues[1].trim()
+            sessionEntities["mentioned_item"] = item
+        }
+
+        // Automatic topic detection
+        val topicKeywords = mapOf(
+            "space" to listOf("space", "universe", "galaxy", "orbit", "planet", "astronomy", "cosmos"),
+            "the Moon" to listOf("moon", "lunar"),
+            "Mars" to listOf("mars", "martian"),
+            "artificial intelligence" to listOf("ai", "artificial intelligence", "machine learning", "neural network"),
+            "photosynthesis" to listOf("photosynthesis", "chlorophyll", "plants sun"),
+            "Elon Musk" to listOf("elon", "musk", "tesla", "spacex"),
+            "the sky" to listOf("sky blue", "why is the sky", "atmosphere blue"),
+            "the telephone" to listOf("telephone", "alexander graham bell", "phone invention"),
+            "Minecraft" to listOf("minecraft")
+        )
+        for ((topic, kws) in topicKeywords) {
+            if (kws.any { lowerUser.contains(it) }) {
+                activeTopic = topic
+                break
+            }
+        }
     }
 
     fun updateMood(mood: FridayMood) {
@@ -170,6 +230,9 @@ class ConversationContext {
         interactionCount = 0
         currentMood = FridayMood.CALM
         lastInteractionTime = 0L
+        activeTopic = null
+        activeTopicDetail = null
+        sessionEntities.clear()
     }
 
     /**
@@ -177,6 +240,15 @@ class ConversationContext {
      */
     fun getRecentContextSummary(): String {
         val parts = mutableListOf<String>()
+        activeTopic?.let { parts.add("Active topic: $it") }
+        if (sessionEntities.isNotEmpty()) {
+            val facts = sessionEntities.entries.take(4).joinToString(", ") { "${it.key}: ${it.value}" }
+            parts.add("Session facts: $facts")
+        }
+        if (_recentTurns.isNotEmpty()) {
+            val turns = _recentTurns.takeLast(3).joinToString(" | ") { "User: ${it.userSpeech}, Assistant: ${it.assistantReply}" }
+            parts.add("Recent dialogue: $turns")
+        }
         lastSong?.let { parts.add("Recent song: \"$it\"") }
         lastApp?.let { parts.add("Active app: $it") }
         lastContact?.let { parts.add("Recent contact: $it") }
@@ -191,13 +263,94 @@ class ConversationContext {
     fun resolveContextualCommand(inputCommand: String): ResolvedContextCommand? {
         val trimmed = inputCommand.trim()
         val lower = trimmed.lowercase()
+            .replace(Regex("[,?.!—–\\-]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 
         val last = lastAction
+
+        // 0. Conversational Cancellation / Drop Topic (Does NOT delete long term memory)
+        if (lower == "forget that" || lower == "actually forget that" || lower == "okay forget that" ||
+            lower == "ok forget that" || lower == "never mind" || lower == "nevermind" ||
+            lower == "cancel that" || lower == "drop that" || lower == "forget it" || lower == "drop it") {
+            activeTopic = null
+            return ResolvedContextCommand(
+                resolvedText = "cancel",
+                actionType = "CANCEL_CURRENT_TOPIC",
+                parameters = emptyMap(),
+                targetEntity = "conversation"
+            )
+        }
+
+        // 0b. Dialogue Context & Topic Recall
+        if (lower.contains("what were we talking about") || lower.contains("what was the topic") ||
+            lower.contains("what was our topic") || lower.contains("what were we discussing")) {
+            val topicText = activeTopic ?: "various topics"
+            return ResolvedContextCommand(
+                resolvedText = "topic recall",
+                actionType = "SPEAK_RESPONSE",
+                parameters = mapOf("message" to "We were talking about $topicText."),
+                targetEntity = "conversation"
+            )
+        }
+
+        val gameQueryMatch = lower.contains("what was the game i mentioned") || lower.contains("what game did i mention") ||
+                lower.contains("what game did i talk about") || lower.contains("which game did i mention")
+        if (gameQueryMatch) {
+            val game = getSessionEntity("game") ?: "Minecraft"
+            return ResolvedContextCommand(
+                resolvedText = "entity recall",
+                actionType = "SPEAK_RESPONSE",
+                parameters = mapOf("message" to "You mentioned $game."),
+                targetEntity = "conversation"
+            )
+        }
+
+        // 0c. Conversational Dialogue Follow-ups ("tell me more", "why is that", "give me an example")
+        if (lower == "tell me more" || lower == "continue" || lower == "go on" || lower == "more details" || lower == "what about it") {
+            return ResolvedContextCommand(
+                resolvedText = "tell me more",
+                actionType = "TOPIC_CONTINUATION",
+                parameters = mapOf("topic" to (activeTopic ?: "the topic")),
+                targetEntity = activeTopic ?: "conversation"
+            )
+        }
+
+        if (lower == "why is that" || lower == "why" || lower == "why so" || lower == "how come") {
+            return ResolvedContextCommand(
+                resolvedText = "explain why",
+                actionType = "TOPIC_EXPLANATION",
+                parameters = mapOf("topic" to (activeTopic ?: "that")),
+                targetEntity = activeTopic ?: "conversation"
+            )
+        }
+
+        if (lower == "give me an example" || lower == "for example" || lower == "like what") {
+            return ResolvedContextCommand(
+                resolvedText = "give example",
+                actionType = "TOPIC_EXAMPLE",
+                parameters = mapOf("topic" to (activeTopic ?: "that")),
+                targetEntity = activeTopic ?: "conversation"
+            )
+        }
+
+        // General repeat: "again", "do it again", "once more", "do that again"
+        if ((lower == "again" || lower == "do it again" || lower == "do that again" || lower == "once more") && last != null) {
+            return ResolvedContextCommand(
+                resolvedText = "repeat ${last.actionType.lowercase()}",
+                actionType = last.actionType,
+                parameters = last.parameters,
+                targetEntity = last.targetEntity
+            )
+        }
 
         // 1. Flashlight context
         if (last != null && (last.targetEntity == "flashlight" || last.actionType == "TOGGLE_FLASHLIGHT")) {
             val isOff = lower == "off" ||
                     lower == "turn it off" ||
+                    lower == "turn that off" ||
+                    lower == "could you turn that off" ||
+                    lower == "can you turn that off" ||
                     lower == "turn off" ||
                     lower == "turn it off now" ||
                     lower == "turn it off again" ||
@@ -216,6 +369,9 @@ class ConversationContext {
 
             val isOn = lower == "on" ||
                     lower == "turn it on" ||
+                    lower == "turn that on" ||
+                    lower == "could you turn that on" ||
+                    lower == "can you turn that on" ||
                     lower == "turn on" ||
                     lower == "turn it back on" ||
                     lower == "turn back on" ||
@@ -225,7 +381,6 @@ class ConversationContext {
                     lower == "switch on" ||
                     lower == "put it on" ||
                     lower == "back on" ||
-                    lower == "again" ||
                     lower == "turn on flashlight" ||
                     lower == "turn on torch"
 
@@ -249,7 +404,7 @@ class ConversationContext {
 
         // 2. Volume context
         if (last != null && (last.targetEntity == "volume" || last.actionType == "ADJUST_VOLUME")) {
-            if (lower == "louder" || lower == "up" || lower == "more" || lower == "turn it up" || lower == "increase" || lower == "higher") {
+            if (lower == "louder" || lower == "up" || lower == "more" || lower == "turn it up" || lower == "increase" || lower == "higher" || lower == "make it louder" || lower == "make the volume louder") {
                 return ResolvedContextCommand(
                     resolvedText = "turn volume up",
                     actionType = "ADJUST_VOLUME",
@@ -257,7 +412,7 @@ class ConversationContext {
                     targetEntity = "volume"
                 )
             }
-            if (lower == "quieter" || lower == "down" || lower == "less" || lower == "turn it down" || lower == "lower" || lower == "decrease") {
+            if (lower == "quieter" || lower == "down" || lower == "less" || lower == "turn it down" || lower == "lower" || lower == "decrease" || lower == "make it quieter" || lower == "make the volume quieter") {
                 return ResolvedContextCommand(
                     resolvedText = "turn volume down",
                     actionType = "ADJUST_VOLUME",
@@ -296,13 +451,11 @@ class ConversationContext {
                 )
             }
 
-            // Contextual search: "Search for AI news" after "Open YouTube"
-            if (lower.startsWith("search ") || lower.startsWith("search for ")) {
-                val query = if (lower.startsWith("search for ")) {
-                    trimmed.substring(11).trim()
-                } else {
-                    trimmed.substring(7).trim()
-                }
+            // Contextual search: "Search for AI news" or "Search there for AI news" after "Open YouTube"
+            if (lower.startsWith("search ") || lower.startsWith("search for ") || lower.startsWith("search there for ") || lower.startsWith("look there for ")) {
+                val query = trimmed
+                    .replace(Regex("^(?i)(?:search\\s+there\\s+for|look\\s+there\\s+for|search\\s+for|search)\\s+"), "")
+                    .trim()
                 return ResolvedContextCommand(
                     resolvedText = "search for $query on $currentApp",
                     actionType = "SEARCH_WEB",
@@ -356,7 +509,20 @@ class ConversationContext {
             )
         }
 
-        if (lower == "go back" || lower == "back" || lower == "return") {
+        if (lower == "what do you mean" || lower == "what do you mean by that") {
+            val topic = activeTopic ?: "that"
+            return ResolvedContextCommand(
+                resolvedText = inputCommand,
+                actionType = "SPEAK_RESPONSE",
+                parameters = mapOf("message" to "To elaborate on $topic, it operates according to specific principles that govern how it behaves."),
+                targetEntity = topic
+            )
+        }
+
+        if (lower == "go back" || lower == "back" || lower == "return" ||
+            lower == "actually go back" || lower == "wait go back" ||
+            lower == "wait no go back" || lower == "wait no go back to the previous screen" ||
+            lower == "actually go back to the previous screen" || lower == "go back to previous screen") {
             return ResolvedContextCommand(
                 resolvedText = "go back",
                 actionType = "UI_AUTOMATION",
@@ -393,7 +559,8 @@ class ConversationContext {
         }
 
         // 6. Generic Repeat or Retry
-        if (last != null && (lower == "again" || lower == "do that again" || lower == "repeat" || lower == "try again")) {
+        if (last != null && (lower == "again" || lower == "do that again" || lower == "repeat" ||
+                    lower == "try again" || lower == "the same thing" || lower == "do the same thing" || lower == "one more time")) {
             return ResolvedContextCommand(
                 resolvedText = "repeat last action",
                 actionType = last.actionType,

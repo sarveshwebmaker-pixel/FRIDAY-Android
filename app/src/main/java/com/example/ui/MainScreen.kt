@@ -30,11 +30,13 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -132,35 +134,96 @@ fun MainScreen(
                 )
             }
 
-            // Center: Battery Mode Badge (Clickable)
+            // Center: Status Badges (Battery, Silent Work Mode, Locked)
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Slate800)
-                    .border(1.dp, Slate700, RoundedCornerShape(20.dp))
-                    .clickable { showBatterySelector = true }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val badgeColor = when (state.batteryMode) {
-                    BatteryMode.NORMAL -> Cyan400
-                    BatteryMode.BATTERY_SAVER -> Emerald400
-                    BatteryMode.PERFORMANCE -> Amber400
-                }
-                Box(
+                // Battery Mode Badge (Clickable)
+                Row(
                     modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(badgeColor)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = state.batteryMode.badgeLabel,
-                    color = Slate200,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.sp
-                )
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Slate800)
+                        .border(1.dp, Slate700, RoundedCornerShape(20.dp))
+                        .clickable { showBatterySelector = true }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val badgeColor = when (state.batteryMode) {
+                        BatteryMode.NORMAL -> Cyan400
+                        BatteryMode.BATTERY_SAVER -> Emerald400
+                        BatteryMode.PERFORMANCE -> Amber400
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(badgeColor)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = state.batteryMode.badgeLabel,
+                        color = Slate200,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Silent Work Mode Badge
+                if (state.isSilentWorkMode) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Indigo400.copy(alpha = 0.2f))
+                            .border(1.dp, Indigo400.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                            .clickable { fridayCore.setSilentWorkMode(false) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeOff,
+                            contentDescription = "Silent Mode Active",
+                            tint = Indigo400,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "SILENT",
+                            color = Indigo400,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+
+                // Device Locked Badge
+                if (state.isDeviceLocked) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Rose400.copy(alpha = 0.2f))
+                            .border(1.dp, Rose400.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Device Locked",
+                            tint = Rose400,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "LOCKED",
+                            color = Rose400,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
             }
 
             // Right: Settings Action Button
@@ -327,12 +390,16 @@ fun MainScreen(
                 QuickCommandChip("Flashlight") {
                     fridayCore.startListeningSession()
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                QuickCommandChip("Battery") {
-                    fridayCore.startListeningSession()
+                Spacer(modifier = Modifier.width(6.dp))
+                QuickCommandChip(if (state.isSilentWorkMode) "Unmute" else "Mute & Work") {
+                    if (state.isSilentWorkMode) {
+                        fridayCore.setSilentWorkMode(false)
+                    } else {
+                        fridayCore.setSilentWorkMode(true)
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                QuickCommandChip("Time") {
+                Spacer(modifier = Modifier.width(6.dp))
+                QuickCommandChip("Battery") {
                     fridayCore.startListeningSession()
                 }
             }

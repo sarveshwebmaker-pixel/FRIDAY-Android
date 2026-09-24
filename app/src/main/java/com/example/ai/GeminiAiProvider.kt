@@ -69,17 +69,23 @@ Supported Action Types & Tools:
    - GALLERY_ACTION: {}
    - FILE_ACTION: {"mode": "open"|"downloads"}
 
-7. SETTINGS & SYSTEM SHADES:
+7. CALLS & NOTIFICATIONS & VISION:
+   - CALL_CONTROLLER: {"action": "answer"|"reject"} (Answers or hangs up active telephone call)
+   - READ_NOTIFICATIONS: {"count": "3"} (Reads incoming messages and notifications aloud)
+   - REPLY_NOTIFICATION: {"message": "..."} (Quick replies to the latest received message)
+   - SCREEN_VISION: {"prompt": "..."} (Inspects or reads current phone screen)
+
+8. SETTINGS & SYSTEM SHADES:
    - SETTINGS_ACTION: {"setting": "wifi"|"bluetooth"|"display"|"sound"|"battery"|"apps"|"general"}
    - SYSTEM_PANEL_ACTION: {"panel": "notifications"|"quick_settings"}
 
-8. UI AUTOMATION (Where requested):
+9. UI AUTOMATION (Where requested):
    - UI_AUTOMATION: {"operation": "click"|"type"|"scroll_down"|"scroll_up"|"back"|"home"|"recents"|"read_screen", "target": "button label or id", "inputText": "..."}
 
-9. CONVERSATION, QUESTIONS & KNOWLEDGE:
+10. CONVERSATION, QUESTIONS & KNOWLEDGE:
    - SPEAK_RESPONSE: {"message": "..."} (For questions, explanations, math, trivia, general AI dialogue, advice, or greeting. Answer clearly and naturally in 1-3 conversational sentences under 30 words.)
 
-10. MULTI-STEP COMMANDS:
+11. MULTI-STEP COMMANDS:
    - If user asks a sequence like "find Rahul in contacts and call him on WhatsApp", return intent "MULTI_STEP_PLAN", actionType "MULTI_STEP_ACTION", and populate the "steps" array with each child action in chronological order.
 
 Return ONLY a valid JSON object with:
@@ -223,5 +229,61 @@ Return ONLY a valid JSON object with:
             confirmationPrompt = confirmationPrompt,
             steps = childSteps
         )
+    }
+
+    suspend fun analyzeScreenImage(base64Png: String, userQuestion: String): String = withContext(Dispatchers.IO) {
+        val apiKey = customApiKeyProvider().ifBlank { BuildConfig.GEMINI_API_KEY }
+        if (apiKey.isBlank()) {
+            return@withContext "Screen analysis requires a configured Gemini API key, Boss."
+        }
+
+        val prompt = if (userQuestion.isBlank()) {
+            "Describe the key information visible on this Android screen concisely in 2-3 sentences for a voice assistant."
+        } else {
+            "Regarding this screen: $userQuestion. Answer concisely in 2-3 sentences."
+        }
+
+        try {
+            val jsonBody = JSONObject().apply {
+                put("contents", org.json.JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", org.json.JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("inline_data", JSONObject().apply {
+                                    put("mime_type", "image/png")
+                                    put("data", base64Png)
+                                })
+                            })
+                            put(JSONObject().apply {
+                                put("text", prompt)
+                            })
+                        })
+                    })
+                })
+            }
+
+            val request = Request.Builder()
+                .url("$BASE_URL?key=$apiKey")
+                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful) {
+                return@withContext "Could not analyze the screen image at this time, Boss."
+            }
+
+            val body = response.body?.string() ?: return@withContext "No response from vision model, Boss."
+            val jsonRoot = org.json.JSONObject(body)
+            val candidates = jsonRoot.optJSONArray("candidates")
+            val firstCandidate = candidates?.optJSONObject(0)
+            val content = firstCandidate?.optJSONObject("content")
+            val parts = content?.optJSONArray("parts")
+            val text = parts?.optJSONObject(0)?.optString("text") ?: ""
+
+            if (text.isNotBlank()) text.trim() else "I see your screen, Boss."
+        } catch (e: Exception) {
+            Log.e(TAG, "Screen vision request failed: ${e.message}", e)
+            "Failed to analyze the screen due to network issue, Boss."
+        }
     }
 }

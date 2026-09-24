@@ -205,6 +205,29 @@ class ActionExecutor(val context: Context) {
                     ToolRegistry.executeTool("UI_AUTOMATION", params, context)
                 }
 
+                is PhoneAction.CallControlAction -> {
+                    ToolRegistry.executeTool("CALL_CONTROLLER", mapOf("command" to action.command), context)
+                }
+
+                is PhoneAction.ReadNotifications -> {
+                    ToolRegistry.executeTool("READ_NOTIFICATIONS", mapOf("count" to action.count.toString()), context)
+                }
+
+                is PhoneAction.ReplyNotification -> {
+                    ToolRegistry.executeTool("REPLY_NOTIFICATION", mapOf("message" to action.text), context)
+                }
+
+                is PhoneAction.ScreenVisionAction -> {
+                    ToolRegistry.executeTool("SCREEN_VISION", mapOf("prompt" to action.prompt), context)
+                }
+
+                is PhoneAction.PaymentAction -> {
+                    val params = mutableMapOf("amount" to action.amount, "payee" to action.payee)
+                    if (action.targetApp != null) params["app"] = action.targetApp
+                    if (action.note != null) params["note"] = action.note
+                    ToolRegistry.executeTool("tool_payment", params, context)
+                }
+
                 is PhoneAction.MultiStepAction -> {
                     val plannedSteps = action.steps.mapNotNull { step ->
                         when (step) {

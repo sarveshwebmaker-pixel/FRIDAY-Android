@@ -48,7 +48,7 @@ class VoiceEngine(
 
         // Confidence thresholds for decision making
         const val CONFIDENCE_HIGH_THRESHOLD = 0.50f
-        const val CONFIDENCE_MEDIUM_THRESHOLD = 0.25f
+        const val CONFIDENCE_MEDIUM_THRESHOLD = 0.35f
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())

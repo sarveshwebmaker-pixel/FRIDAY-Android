@@ -27,7 +27,8 @@ data class SecurityWatcherReport(
     val summary: String,
     val mood: FridayMood,
     val signals: List<SecurityRiskSignal>,
-    val suggestedPrompt: String? = null
+    val suggestedPrompt: String? = null,
+    val isDeviceLocked: Boolean = false
 )
 
 /**
@@ -139,13 +140,13 @@ class FridaySecurityWatcher(private val context: Context) {
         }
 
         val summary = when {
-            highRisk -> "Boss, something doesn't look right. High security risk detected."
-            mediumRisk -> "Boss, something seems unusual with device security."
+            highRisk -> "High security risk detected."
+            mediumRisk -> "Something seems unusual with device security."
             else -> "Device state secure and normal."
         }
 
         val prompt = if (hasSuspiciousAnomaly) {
-            "Boss, something doesn't look right. Want me to secure the phone?"
+            "Something doesn't look right. Want me to secure the phone?"
         } else null
 
         return SecurityWatcherReport(
@@ -153,7 +154,8 @@ class FridaySecurityWatcher(private val context: Context) {
             summary = summary,
             mood = mood,
             signals = signals,
-            suggestedPrompt = prompt
+            suggestedPrompt = prompt,
+            isDeviceLocked = isLocked
         )
     }
 

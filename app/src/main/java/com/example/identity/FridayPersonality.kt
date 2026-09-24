@@ -19,10 +19,15 @@ object FridayPersonality {
     private var bossOccurrenceCounter = 0
 
     /**
-     * FRIDAY uses natural, modern assistant phrasing without repetitive titles.
+     * FRIDAY uses natural, modern assistant phrasing with occasional, natural "Boss" (~every 6 turns).
      */
     fun shouldIncludeBoss(): Boolean {
-        return false
+        bossOccurrenceCounter++
+        return (bossOccurrenceCounter % 6 == 0)
+    }
+
+    fun resetBossCounter() {
+        bossOccurrenceCounter = 0
     }
 
     /**
@@ -196,6 +201,11 @@ object FridayPersonality {
             "SPEAK_RESPONSE", "GENERAL_QUERY" -> {
                 resultingMood = explicitMood ?: FridayMood.CALM
                 text = parameters["message"] ?: parameters["response"] ?: "Online and ready${bossSuffix}."
+            }
+
+            "CANCEL_CURRENT_TOPIC" -> {
+                resultingMood = explicitMood ?: FridayMood.CALM
+                text = "No problem."
             }
 
             "SECURITY_WARNING" -> {

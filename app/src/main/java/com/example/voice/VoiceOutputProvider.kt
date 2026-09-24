@@ -33,12 +33,13 @@ class AndroidSystemTtsProvider(
 
     companion object {
         private const val TAG = "AndroidSystemTts"
-        private const val UTTERANCE_ID = "friday_speech_id"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var textToSpeech: TextToSpeech? = null
     private var isInitialized = false
+    private var activeUtteranceId: String? = null
+    private var utteranceCounter = 0L
 
     init {
         initTts()
@@ -51,16 +52,28 @@ class AndroidSystemTtsProvider(
                 textToSpeech?.language = Locale.getDefault()
                 textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
-                        mainHandler.post { onStart() }
+                        if (utteranceId != null && utteranceId == activeUtteranceId) {
+                            mainHandler.post { onStart() }
+                        }
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        mainHandler.post { onDone() }
+                        if (utteranceId != null && utteranceId == activeUtteranceId) {
+                            activeUtteranceId = null
+                            mainHandler.post { onDone() }
+                        } else {
+                            Log.d(TAG, "Ignored stale or cancelled TTS onDone for: $utteranceId")
+                        }
                     }
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
-                        mainHandler.post { onError("TTS synthesis error") }
+                        if (utteranceId != null && utteranceId == activeUtteranceId) {
+                            activeUtteranceId = null
+                            mainHandler.post { onError("TTS synthesis error") }
+                        } else {
+                            Log.d(TAG, "Ignored stale or cancelled TTS onError for: $utteranceId")
+                        }
                     }
                 })
                 Log.d(TAG, "Android TextToSpeech initialized successfully")
@@ -78,16 +91,20 @@ class AndroidSystemTtsProvider(
         }
 
         try {
+            val utteranceId = "friday_speech_${++utteranceCounter}_${System.currentTimeMillis()}"
+            activeUtteranceId = utteranceId
             textToSpeech?.setPitch(pitch)
             textToSpeech?.setSpeechRate(rate)
-            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
+            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         } catch (e: Exception) {
+            activeUtteranceId = null
             Log.e(TAG, "TTS speak failed", e)
             onError(e.message ?: "TTS error")
         }
     }
 
     override fun stop() {
+        activeUtteranceId = null // Invalidate utterance so any cancelled callback is safely discarded
         try {
             textToSpeech?.stop()
         } catch (e: Exception) {

@@ -21,53 +21,111 @@ object ToolRegistry {
     }
 
     private fun registerDefaults() {
-        // Hardware & Device Controls
-        register(FlashlightTool())
-        register(VolumeTool())
+        // 1. Hardware & Device Controls
+        register(FlashlightTool("FLASHLIGHT"))
+        register(FlashlightTool("TOGGLE_FLASHLIGHT"))
+        register(FlashlightStrobeTool("FLASHLIGHT_STROBE"))
+        register(FlashlightStrobeTool("SOS_LIGHT"))
+        register(VolumeTool("VOLUME_CONTROL"))
+        register(VolumeTool("ADJUST_VOLUME"))
+        register(RingerModeTool("RINGER_MODE"))
+        register(RingerModeTool("SET_RINGER"))
+        register(ScreenOrientationTool("SCREEN_ORIENTATION"))
+        register(ScreenOrientationTool("AUTO_ROTATE"))
+        register(ScreenTimeoutTool("SCREEN_TIMEOUT"))
+        register(ScreenTimeoutTool("SET_SCREEN_TIMEOUT"))
+        register(ScreenshotTool("TAKE_SCREENSHOT"))
+        register(ScreenshotTool("SCREENSHOT"))
+        register(LockScreenTool("LOCK_SCREEN"))
+        register(PowerMenuTool("POWER_MENU"))
+        register(PowerMenuTool("POWER_DIALOG"))
+        register(SplitScreenTool("SPLIT_SCREEN"))
+        register(VibratorTool("VIBRATE_DEVICE"))
+        register(DarkModeTool("DARK_MODE"))
         register(MediaControlTool())
         register(BrightnessTool())
         register(BatteryInfoTool())
         register(DateTimeTool())
 
-        // Apps & Web
-        register(AppLaunchTool())
-        register(AppCloseTool())
-        register(SearchWebTool())
+        // 2. Connectivity & Device Diagnostics
+        register(WifiControlTool())
+        register(BluetoothControlTool())
+        register(HotspotControlTool())
+        register(DeviceStatusTool())
+
+        // 3. Location & GPS
+        register(LocationTool())
+
+        // 4. Apps & Web
+        register(AppLaunchTool("APP_LAUNCH"))
+        register(AppLaunchTool("OPEN_APP"))
+        register(AppCloseTool("APP_ACTION"))
+        register(AppCloseTool("CLOSE_APP"))
+        register(SearchWebTool("WEB_SEARCH"))
+        register(SearchWebTool("SEARCH_WEB"))
         register(OpenUrlTool())
 
-        // Time & Calendar
+        // 5. Time & Calendar
         register(TimerTool())
         register(AlarmTool())
         register(ShowTimersAlarmsTool())
         register(CalendarTool())
+        register(CalendarReadTool())
+        register(CalendarCreateTool())
 
-        // Communication
+        // 6. Personal Encrypted Memory
+        register(MemorySaveTool())
+        register(MemoryReadTool())
+        register(MemoryDeleteTool())
+
+        // 7. Communication & Contacts
+        register(NativePhoneCallTool("PHONE_CALL"))
+        register(NativePhoneCallTool("CALL_CONTACT"))
+        register(ContactSearchTool("CONTACT_SEARCH"))
+        register(ContactSearchTool("SEARCH_CONTACT"))
         register(WhatsAppCallTool())
         register(WhatsAppChatTool())
         register(WhatsAppMessageTool())
-        register(NativePhoneCallTool())
-        register(SendSmsTool())
-        register(ContactSearchTool())
+        register(SendSmsTool("SMS_SEND"))
+        register(SendSmsTool("SEND_SMS"))
         register(SendEmailTool())
         register(ShareContentTool())
         register(ClipboardTool())
 
-        // Maps & Navigation
+        // 8. Maps & Navigation
         register(MapSearchTool())
         register(NavigationTool())
 
-        // Camera & Files & Music
+        // 9. Camera & Files & Music
         register(CameraTool())
         register(GalleryTool())
         register(FileTool())
-        register(PlayMusicTool())
+        register(PlayMusicTool("PLAY_MUSIC"))
+        register(PlayMusicTool("MEDIA_SEARCH"))
 
-        // Settings & System Panels
+        // 10. Settings & System Panels
         register(SettingsActionTool())
         register(SystemPanelTool())
 
-        // UI Automation via Accessibility
+        // 11. UI Automation via Accessibility
         register(UIAutomationTool())
+
+        // 12. Call Control & Notifications & Vision
+        register(CallControllerTool("PHONE_CALL_CONTROL"))
+        register(CallControllerTool("CALL_CONTROLLER"))
+        register(ReadNotificationsTool("NOTIFICATION_READ"))
+        register(ReadNotificationsTool("READ_NOTIFICATIONS"))
+        register(ReplyNotificationTool("REMOTE_INPUT"))
+        register(ReplyNotificationTool("REPLY_NOTIFICATION"))
+        register(ScreenVisionTool("SCREEN_CAPTURE"))
+        register(ScreenVisionTool("SCREEN_ANALYSIS"))
+        register(ScreenVisionTool("SCREEN_VISION"))
+
+        // 13. Mobile & UPI Payments
+        val paymentTool = PaymentTool()
+        register(paymentTool)
+        tools["PAYMENT"] = paymentTool
+        tools["UPI_PAYMENT"] = paymentTool
     }
 
     fun register(tool: FridayTool) {

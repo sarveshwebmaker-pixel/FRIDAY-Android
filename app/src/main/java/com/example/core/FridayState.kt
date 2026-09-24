@@ -31,6 +31,39 @@ enum class AssistantSessionState {
 }
 
 /**
+ * Centralized Voice Output mode (Normal Voice vs Silent Work Mode).
+ */
+enum class VoiceOutputMode {
+    ON,
+    MUTED
+}
+
+/**
+ * Centralized Conversation Session state.
+ */
+enum class ConversationStatus {
+    INACTIVE,
+    ACTIVE
+}
+
+/**
+ * Centralized Voice Authentication state.
+ */
+enum class VoiceAuthState {
+    OWNER,
+    UNKNOWN,
+    REQUIRED
+}
+
+/**
+ * Centralized Device Lock state.
+ */
+enum class DeviceLockState {
+    UNLOCKED,
+    LOCKED
+}
+
+/**
  * State snapshot of FRIDAY's runtime.
  */
 data class FridayState(
@@ -38,6 +71,10 @@ data class FridayState(
     val sessionState: AssistantSessionState = AssistantSessionState.STANDBY,
     val mood: FridayMood = FridayMood.CALM,
     val isConversationActive: Boolean = false,
+    val voiceOutputMode: VoiceOutputMode = VoiceOutputMode.ON,
+    val conversationStatus: ConversationStatus = ConversationStatus.INACTIVE,
+    val voiceAuthState: VoiceAuthState = VoiceAuthState.OWNER,
+    val deviceLockState: DeviceLockState = DeviceLockState.UNLOCKED,
     val statusText: String = "FRIDAY — Ready",
     val batteryMode: BatteryMode = BatteryMode.NORMAL,
     val audioAmplitude: Float = 0f, // 0.0 to 1.0 for dynamic orb pulse
@@ -53,4 +90,8 @@ data class FridayState(
     val activeProviderName: String = "Gemini 3.5 Flash",
     val errorMessage: String? = null,
     val securityStatusMessage: String? = null
-)
+) {
+    val isSilentWorkMode: Boolean get() = voiceOutputMode == VoiceOutputMode.MUTED
+    val isDeviceLocked: Boolean get() = deviceLockState == DeviceLockState.LOCKED
+    val isOwnerAuthenticated: Boolean get() = voiceAuthState == VoiceAuthState.OWNER
+}

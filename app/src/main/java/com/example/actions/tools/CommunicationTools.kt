@@ -16,8 +16,7 @@ import com.example.contacts.ContactResolutionStatus
 import com.example.contacts.ContactResolver
 import com.example.security.ActionRiskLevel
 
-class ContactSearchTool : FridayTool {
-    override val id = "SEARCH_CONTACT"
+class ContactSearchTool(override val id: String = "SEARCH_CONTACT") : FridayTool {
     override val name = "Contact Search Engine"
     override val description = "Searches device contacts with exact and fuzzy matching"
     override val requiredPermissions = listOf(Manifest.permission.READ_CONTACTS)
@@ -257,8 +256,7 @@ class WhatsAppMessageTool : FridayTool {
     }
 }
 
-class NativePhoneCallTool : FridayTool {
-    override val id = "CALL_CONTACT"
+class NativePhoneCallTool(override val id: String = "CALL_CONTACT") : FridayTool {
     override val name = "Native Phone Dialer & Caller"
     override val description = "Places a native phone call or opens the dialer"
     override val requiredPermissions = listOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_CONTACTS)
@@ -327,8 +325,7 @@ class NativePhoneCallTool : FridayTool {
     }
 }
 
-class SendSmsTool : FridayTool {
-    override val id = "SEND_SMS"
+class SendSmsTool(override val id: String = "SEND_SMS") : FridayTool {
     override val name = "SMS Text Messaging"
     override val description = "Opens SMS compose or sends text message to contact"
     override val requiredPermissions = listOf(Manifest.permission.READ_CONTACTS)

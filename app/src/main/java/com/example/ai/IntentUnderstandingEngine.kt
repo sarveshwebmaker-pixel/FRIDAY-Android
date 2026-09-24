@@ -8,7 +8,17 @@ import com.example.security.ActionRiskLevel
  */
 object FridayCapabilities {
     const val FLASHLIGHT = "FLASHLIGHT"
+    const val FLASHLIGHT_STROBE = "FLASHLIGHT_STROBE"
     const val VOLUME = "VOLUME"
+    const val RINGER_MODE = "RINGER_MODE"
+    const val SCREEN_ORIENTATION = "SCREEN_ORIENTATION"
+    const val SCREEN_TIMEOUT = "SCREEN_TIMEOUT"
+    const val SCREENSHOT = "TAKE_SCREENSHOT"
+    const val LOCK_SCREEN = "LOCK_SCREEN"
+    const val POWER_MENU = "POWER_MENU"
+    const val SPLIT_SCREEN = "SPLIT_SCREEN"
+    const val VIBRATE = "VIBRATE_DEVICE"
+    const val DARK_MODE = "DARK_MODE"
     const val MEDIA = "MEDIA"
     const val PLAY_MUSIC = "PLAY_MUSIC"
     const val BRIGHTNESS = "BRIGHTNESS"
@@ -36,6 +46,10 @@ object FridayCapabilities {
     const val WHATSAPP_MESSAGE = "WHATSAPP_MESSAGE"
     const val WHATSAPP_CHAT = "WHATSAPP_CHAT"
     const val SMS = "SEND_SMS"
+    const val PAYMENT = "PAYMENT"
+    const val APP_CLOSE = "CLOSE_APP"
+    const val SILENT_WORK_MODE = "SILENT_WORK_MODE"
+    const val UNMUTE = "UNMUTE"
 }
 
 /**
@@ -45,12 +59,90 @@ object FridayCapabilities {
  */
 object IntentUnderstandingEngine {
 
+    fun normalizeConversationalText(rawText: String): String {
+        var text = rawText.lowercase().trim()
+            .replace(Regex("[,?.!]"), "")
+            .replace(Regex("\\s+"), " ")
+
+        // Strip wake word
+        text = text.replace(Regex("^(?:hey\\s+friday|ok\\s+friday|okay\\s+friday|friday)[,\\s]*"), "").trim()
+
+        // Conversational openers
+        val prefixes = listOf(
+            "can you please ", "could you please ", "would you please ",
+            "can you ", "could you ", "would you ", "will you ",
+            "can we ", "could we ", "please ", "kindly ",
+            "hey can you ", "hey could you ",
+            "i want to ", "i'd like to ", "i would like to ", "i need to ", "i want you to ",
+            "can you tell me ", "could you tell me ", "tell me ",
+            "do me a favor and ", "go ahead and ",
+            "actually ", "okay so ", "wait "
+        )
+        for (p in prefixes) {
+            if (text.startsWith(p)) {
+                text = text.removePrefix(p).trim()
+                break
+            }
+        }
+
+        // Conversational request closers
+        val suffixes = listOf(
+            " for me please", " for me", " please", " right now", " now"
+        )
+        for (s in suffixes) {
+            if (text.endsWith(s)) {
+                text = text.removeSuffix(s).trim()
+                break
+            }
+        }
+        return text
+    }
+
     fun parseCommand(rawText: String): StructuredAction? {
         val lower = rawText.lowercase().trim()
             .replace(Regex("[?,.!]"), "")
             .replace(Regex("\\s+"), " ")
 
         if (lower.isBlank()) return null
+
+        val direct = parseCommandInternal(lower, rawText)
+        if (direct != null) return direct
+
+        val normalized = normalizeConversationalText(rawText)
+        if (normalized.isNotBlank() && normalized != lower) {
+            return parseCommandInternal(normalized, rawText)
+        }
+        return null
+    }
+
+    private fun parseCommandInternal(lower: String, rawText: String = lower): StructuredAction? {
+        // 0. SILENT WORK MODE & UNMUTE
+        val silentModePatterns = listOf(
+            "mute and work", "silent work mode", "work silently", "work in silence",
+            "go silent and work", "silent mode", "mute work", "mute and continue"
+        )
+        if (silentModePatterns.any { lower == it || lower.contains("mute and work") || lower.contains("work in silence") || lower.contains("silent work mode") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.SILENT_WORK_MODE,
+                actionType = "SILENT_WORK_MODE",
+                parameters = mapOf("mode" to "muted"),
+                speechResponse = "",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        val unmutePatterns = listOf(
+            "unmute", "start talking", "resume voice", "voice on", "speak again", "unmute voice"
+        )
+        if (unmutePatterns.any { lower == it || lower.contains("start talking") || lower.contains("unmute") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.UNMUTE,
+                actionType = "UNMUTE",
+                parameters = mapOf("mode" to "on"),
+                speechResponse = "Voice output resumed. I'm listening.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
 
         // 1. FLASHLIGHT (ON / OFF with all natural variations)
         val flashOnPatterns = listOf(
@@ -86,6 +178,21 @@ object IntentUnderstandingEngine {
                 actionType = "TOGGLE_FLASHLIGHT",
                 parameters = mapOf("target" to "flashlight", "state" to "false"),
                 speechResponse = speech.speechText,
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 1b. FLASHLIGHT STROBE / SOS
+        val strobePatterns = listOf(
+            "strobe flashlight", "flashlight strobe", "strobe light", "sos light",
+            "sos torch", "blink flashlight", "flash torch", "emergency strobe", "strobe"
+        )
+        if (strobePatterns.any { lower == it || lower.startsWith("$it ") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.FLASHLIGHT_STROBE,
+                actionType = "FLASHLIGHT_STROBE",
+                parameters = mapOf("flashes" to "6"),
+                speechResponse = "Activating emergency strobe light, Boss.",
                 riskLevel = ActionRiskLevel.SAFE
             )
         }
@@ -231,36 +338,203 @@ object IntentUnderstandingEngine {
             )
         }
 
-        // 6. VOLUME (UP, DOWN, MUTE, LEVEL)
-        val volumeUpWords = listOf("volume up", "turn up the volume", "turn up volume", "turn volume up", "increase volume", "louder", "make it louder", "boost sound", "increase sound", "raise volume")
-        if (volumeUpWords.any { lower == it || lower.startsWith("$it ") }) {
+        // 6. UNIVERSAL VOLUME & SOUND STREAMS
+        val isVolumeRelated = lower.contains("volume") || lower.contains("sound") || lower.contains("louder") ||
+                lower.contains("quieter") || lower == "mute" || lower == "unmute" || lower == "silence" || lower.startsWith("turn up the volume") || lower.startsWith("turn down the volume")
+        if (isVolumeRelated) {
+            val stream = when {
+                lower.contains("ring") -> "ring"
+                lower.contains("alarm") -> "alarm"
+                lower.contains("notification") -> "notification"
+                lower.contains("call") || lower.contains("voice") -> "voice"
+                else -> "music"
+            }
+            val percentMatch = Regex("(\\d{1,3})\\s*%|(\\d{1,3})\\s*percent").find(lower)
+            val level = when {
+                percentMatch != null -> percentMatch.groupValues.let { it[1].ifEmpty { it[2] } }
+                lower.contains("max") || lower.contains("full") || lower.contains("100") -> "max"
+                lower.contains("min") || lower.contains("zero") -> "min"
+                lower.contains("half") || lower.contains("50") -> "50"
+                else -> null
+            }
+            val direction = when {
+                level != null -> null
+                lower.contains("up") || lower.contains("raise") || lower.contains("increase") || lower.contains("louder") || lower.contains("boost") -> "up"
+                lower.contains("down") || lower.contains("lower") || lower.contains("decrease") || lower.contains("quieter") || lower.contains("reduce") -> "down"
+                lower.contains("mute") || lower == "silence" -> "mute"
+                lower.contains("unmute") -> "unmute"
+                else -> "up"
+            }
+
+            val params = mutableMapOf("stream" to stream)
+            if (level != null) params["level"] = level
+            if (direction != null) params["direction"] = direction
+
+            val speech = when {
+                level != null -> "Setting $stream volume to $level%."
+                direction == "mute" -> "Muted."
+                direction == "unmute" -> "Unmuted."
+                direction == "down" -> "Volume decreased."
+                else -> "Volume increased."
+            }
+
             return StructuredAction(
                 intent = FridayCapabilities.VOLUME,
                 actionType = "ADJUST_VOLUME",
-                parameters = mapOf("direction" to "up"),
-                speechResponse = "Volume increased, Boss.",
+                parameters = params,
+                speechResponse = speech,
                 riskLevel = ActionRiskLevel.SAFE
             )
         }
 
-        val volumeDownWords = listOf("volume down", "turn down the volume", "turn down volume", "turn volume down", "decrease volume", "quieter", "make it quieter", "lower the volume", "lower volume", "reduce volume", "decrease sound")
-        if (volumeDownWords.any { lower == it || lower.startsWith("$it ") }) {
+        // 6b. RINGER MODES & DO NOT DISTURB (DND)
+        val ringerTriggers = listOf(
+            "vibrate", "silent", "ringer", "dnd", "do not disturb", "silence phone", "mute phone"
+        )
+        if (ringerTriggers.any { lower.contains(it) }) {
+            val mode = when {
+                lower.contains("dnd off") || lower.contains("turn off dnd") || lower.contains("disable dnd") || lower.contains("turn off do not disturb") -> "dnd_off"
+                lower.contains("dnd") || lower.contains("do not disturb") -> "dnd"
+                lower.contains("vibrate") -> "vibrate"
+                lower.contains("silent") || lower.contains("silence") -> "silent"
+                lower.contains("ring") || lower.contains("normal") || lower.contains("unmute") -> "normal"
+                else -> "vibrate"
+            }
+            val speech = when (mode) {
+                "vibrate" -> "Setting phone to vibrate, Boss."
+                "silent" -> "Setting phone to silent, Boss."
+                "normal" -> "Turning ringer on, Boss."
+                "dnd" -> "Enabling Do Not Disturb, Boss."
+                "dnd_off" -> "Turning off Do Not Disturb, Boss."
+                else -> "Adjusting ringer mode, Boss."
+            }
             return StructuredAction(
-                intent = FridayCapabilities.VOLUME,
-                actionType = "ADJUST_VOLUME",
-                parameters = mapOf("direction" to "down"),
-                speechResponse = "Volume decreased, Boss.",
+                intent = FridayCapabilities.RINGER_MODE,
+                actionType = "RINGER_MODE",
+                parameters = mapOf("mode" to mode),
+                speechResponse = speech,
                 riskLevel = ActionRiskLevel.SAFE
             )
         }
 
-        val volumeMuteWords = listOf("mute", "mute volume", "mute the phone", "mute audio", "silence", "be quiet")
-        if (volumeMuteWords.any { lower == it }) {
+        // 6c. SCREEN BRIGHTNESS
+        if (lower.contains("brightness") || (lower.contains("screen") && (lower.contains("dim") || lower.contains("bright")))) {
+            val percentMatch = Regex("(\\d{1,3})\\s*%|(\\d{1,3})\\s*percent").find(lower)
+            val level = when {
+                percentMatch != null -> percentMatch.groupValues.let { it[1].ifEmpty { it[2] } }
+                lower.contains("max") || lower.contains("full") || lower.contains("100") -> "max"
+                lower.contains("min") || lower.contains("minimum") || lower.contains("dim") -> "min"
+                lower.contains("half") || lower.contains("50") -> "50"
+                lower.contains("up") || lower.contains("raise") || lower.contains("increase") || lower.contains("higher") || lower.contains("brighter") -> "increase"
+                lower.contains("down") || lower.contains("lower") || lower.contains("decrease") -> "decrease"
+                else -> "50"
+            }
             return StructuredAction(
-                intent = FridayCapabilities.VOLUME,
-                actionType = "ADJUST_VOLUME",
-                parameters = mapOf("direction" to "mute"),
-                speechResponse = "Muted, Boss.",
+                intent = FridayCapabilities.BRIGHTNESS,
+                actionType = "SET_BRIGHTNESS",
+                parameters = mapOf("level" to level),
+                speechResponse = "Adjusting screen brightness, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6d. SCREEN AUTO-ROTATION
+        if (lower.contains("auto rotate") || lower.contains("auto-rotate") || lower.contains("rotation") || lower.contains("screen orientation")) {
+            val state = when {
+                lower.contains("off") || lower.contains("lock") || lower.contains("disable") -> "off"
+                lower.contains("on") || lower.contains("enable") || lower.contains("auto") -> "on"
+                else -> "toggle"
+            }
+            val speech = if (state == "on") "Turning on auto-rotate, Boss." else "Locking screen rotation, Boss."
+            return StructuredAction(
+                intent = FridayCapabilities.SCREEN_ORIENTATION,
+                actionType = "SCREEN_ORIENTATION",
+                parameters = mapOf("state" to state),
+                speechResponse = speech,
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6e. SCREEN TIMEOUT
+        if (lower.contains("screen timeout") || lower.contains("screen sleep") || lower.contains("sleep timeout")) {
+            val time = lower.replace("screen timeout", "").replace("screen sleep", "").replace("to", "").trim()
+            return StructuredAction(
+                intent = FridayCapabilities.SCREEN_TIMEOUT,
+                actionType = "SCREEN_TIMEOUT",
+                parameters = mapOf("time" to time.ifBlank { "60" }),
+                speechResponse = "Updating screen sleep timeout, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6f. SCREENSHOT
+        val screenshotPatterns = listOf("take a screenshot", "take screenshot", "capture screen", "capture screenshot", "screenshot", "grab screenshot")
+        if (screenshotPatterns.any { lower == it || lower.startsWith("$it ") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.SCREENSHOT,
+                actionType = "TAKE_SCREENSHOT",
+                parameters = emptyMap(),
+                speechResponse = "Taking a screenshot now, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6g. LOCK SCREEN / SLEEP PHONE
+        val lockPatterns = listOf("lock phone", "lock my phone", "lock screen", "lock the screen", "turn off screen", "turn off the screen", "sleep phone")
+        if (lockPatterns.any { lower == it || lower.startsWith("$it ") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.LOCK_SCREEN,
+                actionType = "LOCK_SCREEN",
+                parameters = emptyMap(),
+                speechResponse = "Locking phone, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6h. POWER MENU / RESTART DIALOG
+        val powerPatterns = listOf("power menu", "open power menu", "power dialog", "restart phone", "shut down phone", "power options", "show power menu")
+        if (powerPatterns.any { lower == it || lower.startsWith("$it ") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.POWER_MENU,
+                actionType = "POWER_MENU",
+                parameters = emptyMap(),
+                speechResponse = "Opening power menu, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6i. SPLIT SCREEN
+        val splitPatterns = listOf("split screen", "toggle split screen", "enable split screen", "open split screen", "multi window")
+        if (splitPatterns.any { lower == it || lower.startsWith("$it ") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.SPLIT_SCREEN,
+                actionType = "SPLIT_SCREEN",
+                parameters = emptyMap(),
+                speechResponse = "Toggling split screen, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6j. VIBRATE DEVICE
+        val vibratePatterns = listOf("vibrate phone", "vibrate the phone", "buzz phone", "test vibration")
+        if (vibratePatterns.any { lower == it || lower.startsWith("$it ") }) {
+            return StructuredAction(
+                intent = FridayCapabilities.VIBRATE,
+                actionType = "VIBRATE_DEVICE",
+                parameters = mapOf("durationMs" to "500"),
+                speechResponse = "Vibrating phone, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 6k. DARK MODE
+        if (lower.contains("dark mode") || lower.contains("dark theme") || lower.contains("night mode")) {
+            val state = if (lower.contains("off") || lower.contains("disable") || lower.contains("light")) "off" else "on"
+            return StructuredAction(
+                intent = FridayCapabilities.DARK_MODE,
+                actionType = "DARK_MODE",
+                parameters = mapOf("state" to state),
+                speechResponse = "Opening display settings for Dark mode, Boss.",
                 riskLevel = ActionRiskLevel.SAFE
             )
         }
@@ -393,6 +667,40 @@ object IntentUnderstandingEngine {
             )
         }
 
+        // 10b. APP CLOSE / EXIT
+        if (lower.startsWith("close ") || lower.startsWith("exit ") || lower.startsWith("stop app ") || lower.startsWith("quit ")) {
+            val appName = lower
+                .replace(Regex("^(?:close|exit|stop app|quit)\\s+"), "")
+                .trim()
+
+            val speech = FridayPersonality.formatSpeech("CLOSE_APP", mapOf("appName" to appName), isSuccess = true)
+            return StructuredAction(
+                intent = FridayCapabilities.APP_CLOSE,
+                actionType = "CLOSE_APP",
+                parameters = mapOf("appName" to appName),
+                speechResponse = speech.speechText,
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 10c. MOBILE & UPI PAYMENTS
+        val paymentMatch = Regex("^(?:pay|send|transfer)\\s+(?:rs\\.?|rupees\\s+|inr\\s+|\\$)?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:rs|rupees|inr|dollars)?\\s+(?:to\\s+)?([a-zA-Z0-9@._\\s]+?)(?:\\s+(?:via|on|using|through)\\s+(gpay|google pay|phonepe|paytm|bhim|upi))?$").find(lower)
+        if (paymentMatch != null) {
+            val amount = paymentMatch.groupValues[1]
+            val payee = paymentMatch.groupValues[2].trim()
+            val app = paymentMatch.groupValues.getOrNull(3)?.trim() ?: ""
+            val params = mutableMapOf("amount" to amount, "payee" to payee)
+            if (app.isNotBlank()) params["app"] = app
+            return StructuredAction(
+                intent = FridayCapabilities.PAYMENT,
+                actionType = "PAYMENT",
+                parameters = params,
+                speechResponse = "Preparing payment of ₹$amount to $payee.",
+                riskLevel = ActionRiskLevel.CONFIRM,
+                confirmationPrompt = "Prepare payment of ₹$amount to $payee in your banking app?"
+            )
+        }
+
         // 11. WEB SEARCH (News, weather, internet search, info)
         if (lower.startsWith("search google for ") || lower.startsWith("search web for ") ||
             lower.startsWith("google ") || lower.startsWith("search for ") || lower.startsWith("search ") ||
@@ -407,7 +715,7 @@ object IntentUnderstandingEngine {
                     .trim()
             }
 
-            val speech = if (query.contains("news")) "Searching for the latest news, Boss." else "Searching the web for $query, Boss."
+            val speech = if (query.contains("news")) "Searching for the latest news." else "Searching the web for $query."
             return StructuredAction(
                 intent = FridayCapabilities.WEB_SEARCH,
                 actionType = "SEARCH_WEB",
@@ -563,6 +871,223 @@ object IntentUnderstandingEngine {
                 actionType = "CLIPBOARD_ACTION",
                 parameters = mapOf("mode" to mode),
                 speechResponse = if (mode == "read") "Reading clipboard, Boss." else "Copied to clipboard, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 19. CALL CONTROL (Answer / Reject / End)
+        if (lower == "answer call" || lower == "pick up" || lower == "answer the call" || lower == "accept call" || lower == "pick up the phone") {
+            return StructuredAction(
+                intent = "CALL_CONTROLLER",
+                actionType = "CALL_CONTROLLER",
+                parameters = mapOf("action" to "answer"),
+                speechResponse = "Answering the call, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower == "reject call" || lower == "decline call" || lower == "end call" || lower == "hang up" || lower == "hang up the call") {
+            return StructuredAction(
+                intent = "CALL_CONTROLLER",
+                actionType = "CALL_CONTROLLER",
+                parameters = mapOf("action" to "reject"),
+                speechResponse = "Ending the call, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 20. NOTIFICATIONS (Read & Reply)
+        if (lower.contains("read my notification") || lower.contains("read notification") || lower.contains("read notifications") || lower.contains("what notifications do i have") || lower == "notifications") {
+            return StructuredAction(
+                intent = "READ_NOTIFICATIONS",
+                actionType = "READ_NOTIFICATIONS",
+                parameters = mapOf("count" to "3"),
+                speechResponse = "Checking your notifications, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.startsWith("reply ") || lower.startsWith("reply to message ") || lower.startsWith("reply that ")) {
+            val replyMsg = lower.removePrefix("reply to message ").removePrefix("reply that ").removePrefix("reply ").trim()
+            return StructuredAction(
+                intent = "REPLY_NOTIFICATION",
+                actionType = "REPLY_NOTIFICATION",
+                parameters = mapOf("message" to replyMsg),
+                speechResponse = "Replying now, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 21. SCREEN VISION
+        if (lower.contains("what is on my screen") || lower.contains("read my screen") || lower.contains("look at my screen") || lower.contains("analyze screen") || lower.contains("what's on my screen") || lower.contains("summarize this article") || lower.contains("explain this image")) {
+            return StructuredAction(
+                intent = "SCREEN_VISION",
+                actionType = "SCREEN_VISION",
+                parameters = mapOf("prompt" to rawText),
+                speechResponse = "Analyzing your screen now, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 22. PERSONAL MEMORY
+        if (lower.startsWith("remember that ") || lower.startsWith("remember ")) {
+            val fact = lower.removePrefix("remember that ").removePrefix("remember ").trim()
+            val topic = when {
+                fact.contains("favorite song") -> "favorite_song"
+                fact.contains("dark mode") || fact.contains("theme") -> "theme_preference"
+                fact.contains("name is") -> "user_name"
+                else -> "note"
+            }
+            return StructuredAction(
+                intent = "MEMORY_SAVE",
+                actionType = "MEMORY_SAVE",
+                parameters = mapOf("key" to topic, "fact" to fact),
+                speechResponse = "I'll remember that.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.contains("what do you remember about me") || lower.contains("what do you remember") || lower.contains("recall my") || lower.contains("what is my favorite song") || lower.contains("what did i tell you") || lower.contains("what did i say") || lower.contains("what's the thing i told you") || lower.contains("what was the note") || lower.contains("what is the note")) {
+            val query = if (lower.contains("favorite song")) "favorite_song" else "everything"
+            return StructuredAction(
+                intent = "MEMORY_READ",
+                actionType = "MEMORY_READ",
+                parameters = mapOf("query" to query),
+                speechResponse = "Checking my memory.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        // Conversational cancellation / drop topic (does not wipe memory)
+        if (lower == "forget that" || lower == "okay forget that" || lower == "actually forget that" ||
+            lower == "never mind" || lower == "nevermind" || lower == "cancel that" || lower == "drop that") {
+            return StructuredAction(
+                intent = "CANCEL_CURRENT_TOPIC",
+                actionType = "CANCEL_CURRENT_TOPIC",
+                parameters = emptyMap(),
+                speechResponse = "No problem.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        if (lower.startsWith("forget my ") || lower == "forget everything" || lower.startsWith("delete memory ") || lower.contains("delete that memory")) {
+            val query = if (lower == "forget everything") "everything" else lower.removePrefix("forget ").removePrefix("delete memory ").trim()
+            return StructuredAction(
+                intent = "MEMORY_DELETE",
+                actionType = "MEMORY_DELETE",
+                parameters = mapOf("query" to query),
+                speechResponse = "Clearing that memory.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 23. CONNECTIVITY (WIFI, BLUETOOTH, HOTSPOT)
+        if (lower.contains("wifi") || lower.contains("wi-fi")) {
+            val state = when {
+                lower.contains("on") || lower.contains("enable") -> "on"
+                lower.contains("off") || lower.contains("disable") -> "off"
+                else -> "status"
+            }
+            return StructuredAction(
+                intent = "WIFI_CONTROL",
+                actionType = "WIFI_CONTROL",
+                parameters = mapOf("action" to state),
+                speechResponse = "Managing Wi-Fi, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.contains("bluetooth")) {
+            val state = when {
+                lower.contains("on") || lower.contains("enable") -> "on"
+                lower.contains("off") || lower.contains("disable") -> "off"
+                else -> "status"
+            }
+            return StructuredAction(
+                intent = "BLUETOOTH_CONTROL",
+                actionType = "BLUETOOTH_CONTROL",
+                parameters = mapOf("action" to state),
+                speechResponse = "Checking Bluetooth, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.contains("hotspot") || lower.contains("tethering")) {
+            return StructuredAction(
+                intent = "HOTSPOT_CONTROL",
+                actionType = "HOTSPOT_CONTROL",
+                parameters = emptyMap(),
+                speechResponse = "Opening hotspot settings, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 24. LIVE LOCATION
+        if (lower.contains("where am i") || lower.contains("what is my location") || lower.contains("what's my location") || lower.contains("current location") || lower.contains("my coordinates")) {
+            return StructuredAction(
+                intent = "LOCATION",
+                actionType = "LOCATION",
+                parameters = emptyMap(),
+                speechResponse = "Checking your live location, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 25. CALENDAR (READ & CREATE)
+        if (lower.contains("what's on my calendar") || lower.contains("what is on my calendar") || lower.contains("do i have a meeting") || lower.contains("check my calendar") || lower.contains("my schedule")) {
+            val day = if (lower.contains("tomorrow")) "tomorrow" else "today"
+            return StructuredAction(
+                intent = "CALENDAR_READ",
+                actionType = "CALENDAR_READ",
+                parameters = mapOf("day" to day),
+                speechResponse = "Checking your calendar for $day, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.startsWith("create a meeting") || lower.startsWith("schedule a meeting") || lower.startsWith("schedule meeting") || lower.startsWith("new meeting")) {
+            val title = if (lower.contains("with")) {
+                "Meeting with " + capitalizeWords(lower.substringAfter("with").trim())
+            } else {
+                "Meeting"
+            }
+            val day = if (lower.contains("tomorrow")) "tomorrow" else "today"
+            return StructuredAction(
+                intent = "CALENDAR_CREATE",
+                actionType = "CALENDAR_CREATE",
+                parameters = mapOf("title" to title, "day" to day, "hour" to "16", "minute" to "0"),
+                speechResponse = "Scheduling $title for $day, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+
+        // 26. DEVICE DIAGNOSTICS
+        if (lower.contains("what's my battery") || lower.contains("battery level") || lower.contains("battery status") || lower.contains("how much battery")) {
+            return StructuredAction(
+                intent = "DEVICE_STATUS",
+                actionType = "DEVICE_STATUS",
+                parameters = mapOf("query" to "battery"),
+                speechResponse = "Checking battery level, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.contains("what phone am i using") || lower.contains("device model") || lower.contains("phone model")) {
+            return StructuredAction(
+                intent = "DEVICE_STATUS",
+                actionType = "DEVICE_STATUS",
+                parameters = mapOf("query" to "phone"),
+                speechResponse = "Checking device model, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.contains("android version") || lower.contains("what os")) {
+            return StructuredAction(
+                intent = "DEVICE_STATUS",
+                actionType = "DEVICE_STATUS",
+                parameters = mapOf("query" to "android"),
+                speechResponse = "Checking Android version, Boss.",
+                riskLevel = ActionRiskLevel.SAFE
+            )
+        }
+        if (lower.contains("storage") || lower.contains("how much space") || lower.contains("storage space")) {
+            return StructuredAction(
+                intent = "DEVICE_STATUS",
+                actionType = "DEVICE_STATUS",
+                parameters = mapOf("query" to "storage"),
+                speechResponse = "Checking storage space, Boss.",
                 riskLevel = ActionRiskLevel.SAFE
             )
         }

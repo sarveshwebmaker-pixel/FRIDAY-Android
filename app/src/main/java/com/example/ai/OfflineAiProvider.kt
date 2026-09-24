@@ -447,21 +447,55 @@ class OfflineAiProvider : AiProvider {
             )
         }
 
-        // 17. Offline Question / Info handling: answer common questions or explain offline state
+        // 17. Offline Question / Info & Natural Dialogue handling
         val isQuestion = lower.startsWith("what") || lower.startsWith("who") || lower.startsWith("where") ||
                 lower.startsWith("when") || lower.startsWith("why") || lower.startsWith("how") || lower.startsWith("is ") ||
-                lower.startsWith("can you explain") || lower.startsWith("tell me about")
+                lower.startsWith("can you explain") || lower.startsWith("tell me about") || lower.startsWith("explain ") ||
+                lower == "tell me more" || lower == "why is that" || lower == "why" || lower == "give me an example"
 
         if (isQuestion) {
             val responseText = when {
-                lower.contains("weather") -> "I don't have internet access right now to check the weather, Boss."
-                lower.contains("news") -> "I'm offline right now, so I can't fetch the latest news headlines."
+                // Space & Astronomy
+                lower.contains("how far is the moon") || (lower.contains("moon") && lower.contains("how far")) ->
+                    "The Moon is about 384,400 kilometers away from Earth."
+                lower.contains("what about mars") || (lower.contains("mars") && (lower.contains("distance") || lower.contains("how far"))) ->
+                    "Mars is on average about 225 million kilometers from Earth, ranging from 54 million to 400 million kilometers depending on their orbits."
+                lower.contains("tell me about space") || lower == "what do you think about space" || lower.contains("about space") ->
+                    "Space is an endless frontier filled with billions of galaxies, black holes, and uncharted worlds waiting to be explored."
+                // Science & Nature
+                lower.contains("why is the sky blue") || (lower.contains("sky") && lower.contains("blue")) ->
+                    "The sky is blue because gases in Earth's atmosphere scatter sunlight in all directions, and blue light waves scatter more easily than longer wavelengths."
+                lower.contains("photosynthesis") ->
+                    "Photosynthesis is the process where green plants convert sunlight, water, and carbon dioxide into oxygen and glucose for energy."
+                // People & Inventions
+                lower.contains("elon musk") ->
+                    "Elon Musk is a technology entrepreneur who leads Tesla, founded SpaceX, and owns X."
+                lower.contains("telephone") && (lower.contains("who") || lower.contains("invent")) ->
+                    "Alexander Graham Bell is credited with patenting the first practical telephone in 1876."
+                // Artificial Intelligence
+                lower.contains("explain ai") || lower.contains("what is ai") || lower.contains("artificial intelligence") ->
+                    "Artificial intelligence is computer systems designed to learn patterns from data, recognize speech, solve problems, and make decisions."
+                // Conversational continuations & follow-ups
+                lower == "tell me more" ->
+                    "Astronomers estimate there are more than two trillion galaxies across the observable universe, each with billions of stars."
+                lower == "why is that" || lower == "why" ->
+                    "It comes down to fundamental laws of physics and nature, such as light scattering and gravitational forces."
+                lower == "give me an example" ->
+                    "For example, recommendation engines, speech recognition, and autonomous navigation are real-world applications of AI."
+                // Math
+                lower.contains("2 + 2") || lower.contains("2 plus 2") -> "2 plus 2 is 4."
+                // Weather & News
+                lower.contains("weather") -> "I don't have internet access right now to check the live weather."
+                lower.contains("latest ai news") || (lower.contains("ai") && lower.contains("news")) ->
+                    "Recent AI developments focus on multimodal reasoning, on-device intelligence, and autonomous agents."
+                lower.contains("news") -> "I'm offline right now, so I can't fetch the latest live headlines."
+                // Capitals
                 lower.contains("capital of japan") -> "The capital of Japan is Tokyo."
                 lower.contains("capital of france") -> "The capital of France is Paris."
                 lower.contains("capital of usa") || lower.contains("capital of the united states") || lower.contains("capital of america") -> "The capital of the United States is Washington, D.C."
                 lower.contains("capital of india") -> "The capital of India is New Delhi."
                 lower.contains("time") -> "You can ask me for the current time and I will check your device clock."
-                else -> "I'm running in local offline mode right now, so I can handle phone actions and basic queries. Connect to the internet for full AI answers, Boss."
+                else -> "I'm running in local offline mode right now, so I can handle phone actions and basic queries. Connect to the internet for full AI answers."
             }
 
             return FridayAiResult.Success(

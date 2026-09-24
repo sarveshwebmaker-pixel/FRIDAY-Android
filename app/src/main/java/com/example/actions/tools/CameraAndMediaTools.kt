@@ -100,8 +100,7 @@ class FileTool : FridayTool {
     }
 }
 
-class PlayMusicTool : FridayTool {
-    override val id = "PLAY_MUSIC"
+class PlayMusicTool(override val id: String = "PLAY_MUSIC") : FridayTool {
     override val name = "Music & Song Player"
     override val description = "Plays songs, artists, or audio streams via media apps or YouTube"
 

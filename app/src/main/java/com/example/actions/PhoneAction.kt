@@ -62,8 +62,24 @@ sealed class PhoneAction(
         val y: Float? = null
     ) : PhoneAction("UI_AUTOMATION", ActionRiskLevel.SAFE)
 
+    // Call Control
+    data class CallControlAction(val command: String) : PhoneAction("CALL_CONTROLLER", ActionRiskLevel.SAFE)
+
+    // Notifications & Screen Vision
+    data class ReadNotifications(val count: Int = 3) : PhoneAction("READ_NOTIFICATIONS", ActionRiskLevel.SAFE)
+    data class ReplyNotification(val text: String) : PhoneAction("REPLY_NOTIFICATION", ActionRiskLevel.SAFE)
+    data class ScreenVisionAction(val prompt: String = "") : PhoneAction("SCREEN_VISION", ActionRiskLevel.SAFE)
+
     // Multi-Step Planner Execution
     data class MultiStepAction(val steps: List<PhoneAction>) : PhoneAction("MULTI_STEP_PLAN", ActionRiskLevel.SAFE)
+
+    // Mobile & UPI Payments
+    data class PaymentAction(
+        val amount: String,
+        val payee: String,
+        val targetApp: String? = null,
+        val note: String? = null
+    ) : PhoneAction("PAYMENT", ActionRiskLevel.CONFIRM, confirmationRequired = true)
 
     // General Responses & Confirmation
     data class SpeakResponse(val message: String) : PhoneAction("SPEAK_RESPONSE", ActionRiskLevel.SAFE)

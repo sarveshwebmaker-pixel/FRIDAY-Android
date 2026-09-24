@@ -458,6 +458,11 @@ fun SettingsScreen(
                                         context.startActivity(intent)
                                     } else {
                                         fridayCore.settingsRepo.updateFloatingBubbleEnabled(enabled)
+                                        if (enabled) {
+                                            com.example.service.FridayFloatingOverlayService.start(context)
+                                        } else {
+                                            com.example.service.FridayFloatingOverlayService.stop(context)
+                                        }
                                     }
                                 }
                             )
@@ -623,6 +628,31 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ActionTestButton(
+                                    label = "Read Notifications",
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    scope.launch {
+                                        val res = ToolRegistry.executeTool("READ_NOTIFICATIONS", emptyMap(), context)
+                                        testActionResult = "Notifications: ${(res as? ActionResult.Success)?.spokenDetail ?: "No unread / Need access"}"
+                                    }
+                                }
+
+                                ActionTestButton(
+                                    label = "Call Control",
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    scope.launch {
+                                        val res = ToolRegistry.executeTool("CALL_CONTROLLER", mapOf("action" to "answer"), context)
+                                        testActionResult = "Call Control: ${if (res is ActionResult.Success) "Success" else (res as? ActionResult.Failure)?.userMessage ?: "Tested"}"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -682,8 +712,8 @@ fun SettingsScreen(
                 item {
                     SettingsSection(title = "About FRIDAY", icon = Icons.Default.Info) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("FRIDAY Voice Assistant v1.0 (Phase 1 Foundation)", color = Slate50, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Text("A voice-first personal AI assistant built exclusively for Android with clean dark/slate aesthetics, modular action architecture, and strict security boundaries.", color = Slate400, fontSize = 12.sp, lineHeight = 16.sp)
+                            Text("FRIDAY Voice Assistant v1.3.5 (Voice-First Mobile AI)", color = Slate50, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("A voice-first personal AI assistant built exclusively for Android with real-time Gemini Live WebSocket architecture, phone control actions, screen vision, and notification management.", color = Slate400, fontSize = 12.sp, lineHeight = 16.sp)
 
                             Spacer(modifier = Modifier.height(8.dp))
 
